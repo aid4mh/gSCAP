@@ -11,7 +11,6 @@ import os
 from pathlib import Path
 import requests
 from sqlite3 import dbapi2 as sqlite
-import sys
 from urllib3.exceptions import NewConnectionError
 import time
 import zipfile
@@ -25,18 +24,9 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
+import synapseclient
+from synapseclient import Activity, Project, Folder, File
 
-
-""" store the db cache in the users home directory """
-home = str(Path.home())
-path = os.path.join(home, '.weather_cache')
-
-if not os.path.exists(path):
-    os.mkdir(path)
-
-""" make sure the entire module is visible """
-sys.path.insert(0, os.path.abspath('..'))
-sys.path.insert(0, os.path.abspath('../..'))
 
 __author__ = 'Luke Waninger'
 __copyright__ = 'Copyright 2018, University of Washington'
@@ -48,6 +38,22 @@ __maintainer__ = 'Luke Waninger'
 __email__ = 'luke.waninger@gmail.com'
 __status__ = 'development'
 
+
+"""login to Synapse to sync data directory and cache"""
+syn = synapseclient.Synapse()
+syn.login()
+
+syn_project = syn.get(Project(name='mHealthFeaturization'))
+
+
+""" store the db cache in the users home directory """
+data_dir = os.path.join(str(Path.home()), '.mhealth')
+if not os.path.exists(data_dir):
+    os.mkdir(data_dir)
+
+dpath = lambda s: os.path.join(data_dir, s)
+
+
 """ Dark Sky API url """
 DARK_SKY_URL = 'https://api.darksky.net/forecast'
 
@@ -56,18 +62,12 @@ and how many seconds to wait between each """
 CONNECTION_RESET_ATTEMPTS = 99
 CONNECTION_WAIT_TIME = 60
 
-
 """ensure the user has an API key to Google Maps"""
 try:
     DARK_SKY_KEY = os.environ['DARK_SKY_KEY']
 except KeyError:
-    try:
-        import brightenv2.brighten_secrets as bs
-        DARK_SKY_KEY = bs.DARK_SKY_KEY
-    except ModuleNotFoundError:
-        DARK_SKY_KEY = None
-        print('WARNING: No API key found to access weather data. '
-              'A key must be supplied with each weather request')
+    print('WARNING: No API key found to access weather data. '
+          'A key must be supplied with each weather request')
 
 """Dark Sky hourly call columns"""
 HOURLY_COLS = [
@@ -192,8 +192,13 @@ class HourlyWeatherReport(Base):
                f'date={self.time.isoformat()})>'
 
 
-db = os.path.join(path, 'weather_cache.sqlite')
-engine = create_engine(f'sqlite+pysqlite:///{db}', module=sqlite)
+"""verify db cache exists or download if necessary"""
+db_name = "weather_cache.sqlite"
+weather_cache = syn.get(File(
+    name=db_name, path=dpath(db_name), parent=syn_project
+))
+
+engine = create_engine(f'sqlite+pysqlite:///{dpath(db_path)}', module=sqlite)
 Base.metadata.create_all(engine)
 
 
@@ -219,36 +224,22 @@ WeatherRequest = namedtuple(
     'WeatherRequest', ['date', 'lat', 'lon', 'zip_code']
 )
 
-"""only open this file once, download if unavailable"""
-zip_path = os.path.join(path, '2017_Gaz_zcta_national.csv')
-try:
-    zips = pd.read_csv(zip_path)
-    zips.set_index('zip_code', inplace=True)
+"""only open this zips once, download if unavailable
+http://www2.census.gov/geo/docs/maps-data/data/gazetteer/2017_Gazetteer/2017_Gaz_zcta_national.zip
+"""
+
+zname = '2017_national_zipcodes.csv'
+zips_syn = syn.get(File(
+    name=zname,
+    path=dpath(zname),
+    parent=syn_project
+))
+
+zips = pd.read_csv(dpath(zname))
+zips.set_index('zip_code', inplace=True)
+
 except FileNotFoundError:
-    print(f'zip codes file not present in data directory - {path}\n'
-          f'Downloading from US Census 2017')
 
-    url = 'http://www2.census.gov/geo/docs/maps-data/data/gazetteer/' \
-          '2017_Gazetteer/2017_Gaz_zcta_national.zip'
-
-    response = requests.get(url)
-    if response.ok:
-        t_path = os.path.join(path, '2017_Gaz_zcta_national.txt')
-        f = io.BytesIO(response.content)
-
-        with zipfile.ZipFile(f, 'r') as f:
-            f.extractall(path=path)
-
-        t = pd.read_csv(t_path, sep='\t')
-        t.columns = [s.strip() for s in t.columns]
-        t = t.loc[:, ['GEOID', 'INTPTLAT', 'INTPTLONG']]
-        t.columns = ['zip_code', 'lat', 'lon']
-
-        t.to_csv(zip_path, index=None)
-        os.remove(t_path)
-
-        zips = t
-        zips.set_index('zip_code', inplace=True)
 
 
 def isnum(x):

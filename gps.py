@@ -28,6 +28,13 @@ __maintainer__ = 'Luke Waninger'
 __email__ = 'luke.waninger@gmail.com'
 __status__ = 'development'
 
+
+""" store the db cache in the users home directory """
+home = str(Path.home())
+data_dir = os.path.join(home, '.mhealth')
+if not os.path.exists(data_dir):
+    os.mkdir(data_dir)
+
 """Google Maps place types to ignore 
 https://developers.google.com/places/supported_types
 """
@@ -63,12 +70,12 @@ try:
     PLACES_KEY = os.environ['GMAPS_PLACES_KEY']
     print(f'Google Places API Key: {PLACES_KEY}')
 except KeyError:
-    try:
-        import brightenv2.brighten_secrets as bs
-        PLACES_KEY = bs.PLACES_KEY
-    except ModuleNotFoundError:
-        PLACES_KEY = None
-        print('WARNING: No API key found to access Google Maps.')
+    print('WARNING: No API key found to access Google Maps.')
+
+"""How many times to retry a network timeout 
+and how many seconds to wait between each """
+CONNECTION_RESET_ATTEMPTS = 99
+CONNECTION_WAIT_TIME = 60
 
 """named tuple used to clarify types used in the scripts below"""
 GPS = namedtuple('GPS', ['lat', 'lon', 'ts'])

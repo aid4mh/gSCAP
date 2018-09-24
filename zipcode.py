@@ -42,6 +42,13 @@ __maintainer__ = 'Luke Waninger'
 __email__ = 'luke.waninger@gmail.com'
 __status__ = 'development'
 
+""" store the db cache in the users home directory """
+home = str(Path.home())
+data_dir = os.path.join(home, '.mhealth')
+if not os.path.exists(data_dir):
+    os.mkdir(data_dir)
+
+
 
 
 
