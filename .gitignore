@@ -1,0 +1,24 @@
+# never push data!
+data
+*.csv
+*.json
+*.sql
+*.xls
+*.xlsx
+*.xml
+*.pkl
+
+# documentation
+docs/_static
+docs/_templates
+docs/_build/doctrees
+
+
+# secrets
+
+
+# miscellaneous IDE/Environment
+.idea
+.ipynb_checkpoints
+__pycache__
+.pytest_cache
