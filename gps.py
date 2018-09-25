@@ -16,7 +16,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import mode
 from sklearn.cluster import DBSCAN
-
+import synapseclient
+from synapseclient import File, Project
 
 __author__ = 'Luke Waninger'
 __copyright__ = 'Copyright 2018, University of Washington'
@@ -29,11 +30,13 @@ __email__ = 'luke.waninger@gmail.com'
 __status__ = 'development'
 
 
-""" store the db cache in the users home directory """
-home = str(Path.home())
-data_dir = os.path.join(home, '.mhealth')
-if not os.path.exists(data_dir):
-    os.mkdir(data_dir)
+"""login to Synapse to sync data directory and cache"""
+syn = synapseclient.Synapse()
+syn.login()
+
+syn_project = syn.get(Project(name='mHealthFeaturization'))
+
+
 
 """Google Maps place types to ignore 
 https://developers.google.com/places/supported_types

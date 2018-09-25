@@ -5,7 +5,6 @@
 from collections import namedtuple
 from contextlib import contextmanager
 import datetime as dt
-import io
 import multiprocessing as mul
 import os
 from pathlib import Path
@@ -13,7 +12,6 @@ import requests
 from sqlite3 import dbapi2 as sqlite
 from urllib3.exceptions import NewConnectionError
 import time
-import zipfile
 
 import numpy as np
 import pandas as pd
@@ -25,7 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
 import synapseclient
-from synapseclient import Activity, Project, Folder, File
+from synapseclient import Project, File
 
 
 __author__ = 'Luke Waninger'
@@ -46,21 +44,14 @@ syn.login()
 syn_project = syn.get(Project(name='mHealthFeaturization'))
 
 
-""" store the db cache in the users home directory """
-data_dir = os.path.join(str(Path.home()), '.mhealth')
-if not os.path.exists(data_dir):
-    os.mkdir(data_dir)
-
-dpath = lambda s: os.path.join(data_dir, s)
-
-
 """ Dark Sky API url """
 DARK_SKY_URL = 'https://api.darksky.net/forecast'
 
 """How many times to retry a network timeout 
 and how many seconds to wait between each """
 CONNECTION_RESET_ATTEMPTS = 99
-CONNECTION_WAIT_TIME = 60
+CONNECTION_WAIT_TIME = \
+    60
 
 """ensure the user has an API key to Google Maps"""
 try:
@@ -193,12 +184,8 @@ class HourlyWeatherReport(Base):
 
 
 """verify db cache exists or download if necessary"""
-db_name = "weather_cache.sqlite"
-weather_cache = syn.get(File(
-    name=db_name, path=dpath(db_name), parent=syn_project
-))
-
-engine = create_engine(f'sqlite+pysqlite:///{dpath(db_path)}', module=sqlite)
+weather_cache = syn.get(File(name='weather_cache.sqlite', parent=syn_project))
+engine = create_engine(f'sqlite+pysqlite:///{weather_cache.path}', module=sqlite)
 Base.metadata.create_all(engine)
 
 
@@ -227,19 +214,9 @@ WeatherRequest = namedtuple(
 """only open this zips once, download if unavailable
 http://www2.census.gov/geo/docs/maps-data/data/gazetteer/2017_Gazetteer/2017_Gaz_zcta_national.zip
 """
-
-zname = '2017_national_zipcodes.csv'
-zips_syn = syn.get(File(
-    name=zname,
-    path=dpath(zname),
-    parent=syn_project
-))
-
-zips = pd.read_csv(dpath(zname))
-zips.set_index('zip_code', inplace=True)
-
-except FileNotFoundError:
-
+zips_syn = syn.get(File(name='2017_national_zipcodes.csv', parent=syn_project))
+zips = pd.read_csv(zips_syn.path)
+zips.set_index('zipcode', inplace=True)
 
 
 def isnum(x):
