@@ -37,7 +37,6 @@ syn.login()
 syn_project = syn.get(Project(name='mHealthFeaturization'))
 
 
-
 """Google Maps place types to ignore 
 https://developers.google.com/places/supported_types
 """
