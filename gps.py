@@ -273,7 +273,7 @@ def process_velocities(gps_records):
 
     # merge in the new columns
     x = pd.DataFrame(nanrow + x)
-    records = pd.concat([records, x], axis=1)
+    records = pd.concat([records, x], axis=1, sort=True)
     return records
 
 
@@ -582,7 +582,7 @@ def get_clusters_with_context(records, parameters=None):
         for l in clusters.cid
     ] if 'cid' in clusters.columns else 'xNot'
 
-    records = pd.concat([home_records, work_records, remaining, others])
+    records = pd.concat([home_records, work_records, remaining, others], sort=True)
 
     names, types = [], []
     for ci in clusters.itertuples():
@@ -897,8 +897,8 @@ def impute_stationary_coordinates(records, freq='10Min', metrics=True):
         x = [xi for xi in x if xi is not None]
 
         if len(x) > 0:
-            x = pd.concat(x)
-            records = pd.concat([records, x], axis=0)
+            x = pd.concat(x, sort=True)
+            records = pd.concat([records, x], axis=0, sort=True)
             records.sort_values('ts', inplace=True)
 
             # recalculate velocities between the imputed locations
@@ -912,7 +912,7 @@ def impute_stationary_coordinates(records, freq='10Min', metrics=True):
 
     # combine, sort, reset index
     if len(all_days) > 0:
-        records = pd.concat(all_days, axis=0)
+        records = pd.concat(all_days, axis=0, sort=True)
         records.sort_values('ts', inplace=True)
         records.index = np.arange(len(records))
 

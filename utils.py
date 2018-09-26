@@ -25,7 +25,6 @@ def progress_bar(pbar):
         (Process, Queue)
     """
     proc_manager = Manager()
-    qu = proc_manager.Queue()
 
     def track_it(pbar, trackq):
         idx = 0
@@ -38,6 +37,7 @@ def progress_bar(pbar):
                     break
 
             except EOFError:
+
                 break
 
             pbar.update(update)
