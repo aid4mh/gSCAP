@@ -34,7 +34,7 @@ __status__ = 'development'
 syn = synapseclient.Synapse()
 syn.login()
 
-syn_project = syn.get(Project(name='GSCAT Data'))
+syn_project = syn.get(Project(name='GSCAP Data'))
 
 
 """Google Maps place types to ignore 
