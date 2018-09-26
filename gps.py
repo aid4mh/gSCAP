@@ -34,7 +34,7 @@ __status__ = 'development'
 syn = synapseclient.Synapse()
 syn.login()
 
-syn_project = syn.get(Project(name='mHealthFeaturization'))
+syn_project = syn.get(Project(name='GSCAT Data'))
 
 
 """Google Maps place types to ignore 
@@ -505,7 +505,7 @@ def geo_distance(lat1, lon1, lat2, lon2):
     return r*c*1000
 
 
-def __wrapit(args):
+def __geo_distance_wrapper(args):
     return geo_distance(*args)
 
 
@@ -529,7 +529,7 @@ def geo_pairwise_distances(x, n_jobs=1):
     cpus = cpus if n_jobs <= 0 or n_jobs >= cpus else n_jobs
     pool = mul.Pool(cpus)
 
-    result = sorted(list(pool.map(__wrapit, x)))
+    result = sorted(list(pool.map(__geo_distance_wrapper, x)))
 
     pool.close()
     pool.join()
