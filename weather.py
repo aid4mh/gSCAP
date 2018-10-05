@@ -7,7 +7,6 @@ from contextlib import contextmanager
 import datetime as dt
 import multiprocessing as mul
 import os
-from pathlib import Path
 import requests
 from sqlite3 import dbapi2 as sqlite
 from urllib3.exceptions import NewConnectionError
@@ -15,15 +14,14 @@ import time
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import and_
+from sqlalchemy import and_, func
 from sqlalchemy import create_engine
-from sqlalchemy import cast, Column, Date, String, Float, DateTime
+from sqlalchemy import Column, String, Float, DateTime
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
 import synapseclient
-from synapseclient import Project, File
 
 
 __author__ = 'Luke Waninger'
@@ -35,13 +33,6 @@ __version__ = '0.0.1'
 __maintainer__ = 'Luke Waninger'
 __email__ = 'luke.waninger@gmail.com'
 __status__ = 'development'
-
-
-"""login to Synapse to sync data directory and cache"""
-syn = synapseclient.Synapse()
-syn.login()
-
-syn_project = syn.get(Project(name='mHealthFeaturization'))
 
 
 """ Dark Sky API url """
@@ -184,7 +175,10 @@ class HourlyWeatherReport(Base):
 
 
 """verify db cache exists or download if necessary"""
-weather_cache = syn.get(File(name='weather_cache.sqlite', parent=syn_project))
+syn = synapseclient.Synapse()
+syn.login()
+
+weather_cache = syn.get('syn16816655')
 engine = create_engine(f'sqlite+pysqlite:///{weather_cache.path}', module=sqlite)
 Base.metadata.create_all(engine)
 
@@ -211,12 +205,9 @@ WeatherRequest = namedtuple(
     'WeatherRequest', ['date', 'lat', 'lon', 'zip_code']
 )
 
-"""only open this zips once, download if unavailable
-http://www2.census.gov/geo/docs/maps-data/data/gazetteer/2017_Gazetteer/2017_Gaz_zcta_national.zip
-"""
-zips_syn = syn.get(File(name='2017_national_zipcodes.csv', parent=syn_project))
-zips = pd.read_csv(zips_syn.path)
-zips.set_index('zipcode', inplace=True)
+"""only open this zips once, download if unavailable"""
+zips = syn.tableQuery('SELECT zipcode, lat, lon FROM syn16816780').asDataFrame()
+zips = zips.set_index('zipcode')
 
 
 def isnum(x):
@@ -254,15 +245,17 @@ def cache_manager(request_qu, response_qu):
 
 
 def weather_report(
-        request, summarize=False, key=None, n_jobs=1, progress_qu=None
+        request, summarize='daily', key=None, n_jobs=1, progress_qu=None
 ):
 
     """retrieve a weather report for specific lat, lon, and day
 
     Args:
         request: (weather.WeatherRequest)
+        summarize: (bool)
         n_jobs: (int) number of procs to use (-1 for all)
         key: (str)
+        progress_qu: (multiprocessing.Queue)
 
     Raises:
         ValueError if lat/lon is outside of valid range
@@ -308,27 +301,48 @@ def weather_report(
         ))
         request_qu.put(dict(type='end'))
 
-    if summarize:
+    if summarize in ['daily', 'weekly']:
+        if summarize == 'weekly':
+            results = pd.concat([r.get('report') for r in results], sort=True)
+            results = results.sort_values(by='time')
+
+            # break into weekly results
+            results['week'] = [d.week for d in results.time]
+            results = [
+                dict(
+                    report=pd.DataFrame(g).drop(columns='week'),
+                    hits=0,
+                    misses=0
+                )
+                for n, g in results.groupby(['lat', 'lon', 'week'])
+            ]
+            request = [
+                WeatherRequest(
+                    date=np.min(d.time),
+                    lat=d.lat.values[0],
+                    lon=d.lon.values[0],
+                    zip_code=None
+                )
+                for d in [r.get('report') for r in results]
+            ]
+        else:
+            pass
+
         r_ = list(pool.map(
-            summarize_results, [(c, ri) for c, ri in zip(results, request)]
+            summarize_report, [(c, ri) for c, ri in zip(results, request)]
         ))
         report = pd.DataFrame([(r.get('report')) for r in r_])
 
-        r_cols = set(report.columns) - {
-            'date', 'lat', 'lon', 'zip_code', 'summary'
-        }
+        r_cols = set(report.columns) - {'date', 'lat', 'lon', 'zip_code', 'summary'}
 
         # safely round the results
         for c in r_cols:
-            v = [np.round(vi, 2) if isnum(vi) else np.nan for vi in report[c]]
-            report[c] = v
+            report[c] = [np.round(vi, 2) if isnum(vi) else np.nan for vi in report[c]]
 
         hits = np.sum([r.get('hits') for r in r_])
         misses = np.sum([r.get('misses') for r in r_])
 
         results = dict(report=report, hits=hits, misses=misses)
-    else:
-        pass
 
     pool.close()
     pool.join()
@@ -340,7 +354,8 @@ def weather_report(
 
 def dd_from_zip(zip_code):
     try:
-        lat, lon = zips.loc[zip_code].lat, zips.loc[zip_code].lon
+        lat = zips.loc[zip_code].lat.values[0]
+        lon = zips.loc[zip_code].lon.values[0]
         return lat, lon
     except:
         return 0, 0
@@ -352,7 +367,8 @@ def get_from_cache(date, lat, lon, session):
     content = session.query(HourlyWeatherReport).filter(and_(
         (HourlyWeatherReport.lat == lat),
         (HourlyWeatherReport.lon == lon),
-        (cast(HourlyWeatherReport.time, Date) == cast(day, Date))  # this incurs a 10x order of magnitude time cost
+        # (cast(HourlyWeatherReport.time, Date) == cast(day, Date))  # this incurs a 10x order of magnitude time cost
+        (HourlyWeatherReport.time == func.datetime(day))
     )).all()
 
     if len(content) > 0:
@@ -378,7 +394,7 @@ def make_empty(day):
     return c
 
 
-def summarize_results(args):
+def summarize_report(args):
     """
 
     Args:
@@ -389,17 +405,6 @@ def summarize_results(args):
     """
     c, ri = args
     r = c.get('report')
-
-    def isnum(x):
-        try:
-            if x is not None:
-                float(x)
-            else:
-                return False
-
-            return True
-        except ValueError:
-            return False
 
     def vstats(vals):
         vals = [v if isnum(v) else np.nan for v in vals]
