@@ -425,7 +425,8 @@ def extract_cluster_centers(gps_records, dbscan):
             continue
 
         # find the indices for this center
-        idx = [i for i, k in enumerate(dbscan.labels_) if k == ci]
+        # idx = [i for i, k in enumerate(dbscan.labels_) if k == ci]
+        idx = np.where(dbscan.labels_ == ci)[0]
 
         # extract the gps points in this cluster
         records = pd.DataFrame(
@@ -562,9 +563,7 @@ def get_clusters_with_context(records, parameters=None):
     ]
     labels, clusters = gps_dbscan(gps_records, parameters)
 
-    remaining.cid = [
-        f'x{l}' if l != -1 else 'xNot' for l in labels
-    ]
+    remaining.cid = [f'x{l}' if l != -1 else 'xNot' for l in labels]
 
     # append the home and work clusters
     if home is not None:
@@ -584,25 +583,8 @@ def get_clusters_with_context(records, parameters=None):
 
     records = pd.concat([home_records, work_records, remaining, others], sort=True)
 
-    names, types = [], []
-    for ci in clusters.itertuples():
-        r = request_nearby_places(ci.lat, ci.lon)
-        content = r.get('content') if r is not None else None
-
-        if content is not None and content.get('status') == 'OK':
-            results = content.get('results')
-
-            n = results[0].get('name')
-            t = ', '.join(results[0].get('types'))
-            names.append(n)
-            types.append(t)
-
-        else:
-            names.append('nap')
-            types.append('nap')
-
-    clusters['name'] = names
-    clusters['categories'] = types
+    clusters['name'] = 'nap'
+    clusters['categories'] = 'nap'
     records['distance_from_home'] = [
         np.round(geo_distance(
             home.get('lat'),
@@ -777,7 +759,7 @@ def get_cluster_times(records, clusters):
     return entries
 
 
-def gps_dbscan(gps_records, parameters=None, optics=False):
+def gps_dbscan(gps_records, parameters=None):
     """perform DBSCAN and return cluster with most number of components
     http://scikit-learn.org/stable/modules/generated/sklearn.cluster.DBSCAN.html
 
@@ -796,17 +778,13 @@ def gps_dbscan(gps_records, parameters=None, optics=False):
     # check if parameters were supplied
     eps, min_samples, metric, n_jobs = __validate_scikit_params(parameters)
 
-    # perform the clustering
-    if optics:
-        dbscan = DBSCAN(
-            eps=eps, min_samples=min_samples, metric=metric, n_jobs=n_jobs
-        ).fit([(g.lat, g.lon) for g in gps_records])
-    else:
-        dbscan = DBSCAN(
-            eps=eps, min_samples=min_samples, metric=metric, n_jobs=n_jobs
-        ).fit([(g.lat, g.lon) for g in gps_records])
+    dbscan = DBSCAN(
+        eps=eps, min_samples=min_samples, metric=metric, n_jobs=n_jobs
+    ).fit([(g.lat, g.lon) for g in gps_records])
 
     clusters = extract_cluster_centers(gps_records, dbscan)
+
+    assert len(dbscan.labels_) == len(clusters)
     return dbscan.labels_, clusters
 
 
@@ -962,7 +940,6 @@ def resample_gps_intervals(records):
 # Google Places requests
 # --------------------------------------------------------------------------
 def request_nearby_places(lat, lon, radius=50):
-    return
     """retrieve an ordered list of nearby by places
 
     Notes:
