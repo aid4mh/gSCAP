@@ -4,11 +4,17 @@
 
 import ast
 from collections import *
+from contextlib import contextmanager
 import datetime as dt
+from enum import Enum
+import json
 import multiprocessing as mul
 import os
 from pathlib import Path
 import re
+import requests
+from sqlite3 import dbapi2 as sqlite
+import time
 
 import googlemaps
 from googlemaps.exceptions import *
@@ -16,8 +22,13 @@ import numpy as np
 import pandas as pd
 from scipy.stats import mode
 from sklearn.cluster import DBSCAN
+from sqlalchemy import and_, create_engine
+from sqlalchemy import Column, String, Float, DateTime
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.declarative import declarative_base
 import synapseclient
-from synapseclient import File, Project
+from urllib3.exceptions import ConnectionError
 
 __author__ = 'Luke Waninger'
 __copyright__ = 'Copyright 2018, University of Washington'
@@ -28,13 +39,6 @@ __version__ = '0.0.1'
 __maintainer__ = 'Luke Waninger'
 __email__ = 'luke.waninger@gmail.com'
 __status__ = 'development'
-
-
-"""login to Synapse to sync data directory and cache"""
-syn = synapseclient.Synapse()
-syn.login()
-
-syn_project = syn.get(Project(name='GSCAP Data'))
 
 
 """Google Maps place types to ignore 
@@ -84,6 +88,40 @@ GPS = namedtuple('GPS', ['lat', 'lon', 'ts'])
 Cluster = namedtuple('Cluster', ['lat', 'lon', 'cid'])
 
 
+@contextmanager
+def synapse_scope():
+    syn = synapseclient.Synapse()
+    syn.login()
+
+    try:
+        yield syn
+    except Exception as e:
+        raise e
+    finally:
+        syn.logout()
+
+
+"""verify db cache exists or download if necessary"""
+dpath = lambda x: os.path.join(Path.home(), '.gscap', x)
+
+if not os.path.exists(dpath('')):
+    os.mkdir(dpath(''))
+
+"""only open this zips once, download if unavailable"""
+zname = 'zips.csv'
+if not os.path.exists(dpath(zname)):
+    with synapse_scope() as s:
+        zips = s.tableQuery('SELECT zipcode, lat, lon FROM syn16816780').asDataFrame()
+        zips.to_csv(dpath(zname), index=None)
+
+zips = pd.read_csv(dpath(zname))
+zips = zips.set_index('zipcode')
+del zname
+
+
+# --------------------------------------------------------------------------
+# Misc stuff
+# --------------------------------------------------------------------------
 def as_pydate(date):
     ismil = True
 
@@ -110,6 +148,551 @@ def as_pydate(date):
 
     date = date + dt.timedelta(hours=12) if not ismil else date
     return date
+
+
+def isnum(x):
+    if x is None:
+        return False
+
+    try:
+        float(x)
+        return True
+    except TypeError:
+        return False
+
+
+def dd_from_zip(zipcode):
+    try:
+        lat = zips.loc[zipcode].lat.values[0]
+        lon = zips.loc[zipcode].lon.values[0]
+        return lat, lon
+    except:
+        return 0, 0
+
+
+def zip_from_dd(lat, lon):
+    try:
+        # get closest zip within 7 miles
+        win68miles = zips.loc[
+            (np.round(zips.lat, 0) == np.round(lat, 0)) &
+            (np.round(zips.lon, 0) == np.round(lon, 0))
+        ].dropna()
+
+        win68miles['d'] = [geo_distance(lat, lon, r.lat, r.lon) for r in win68miles.itertuples()]
+        return zips.loc[win68miles.d.argmin()].index.tolist()[0]
+    except:
+        return -1
+
+
+# --------------------------------------------------------------------------
+# API calls and caching
+# --------------------------------------------------------------------------
+""" SQLAlchemy declarative base for ORM features """
+Base = declarative_base()
+
+
+@contextmanager
+def session_scope():
+    """Provide a transactional scope around a series of operations."""
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        yield session
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+
+class PlaceRequest(Base):
+    __tablename__ = 'apicalls'
+
+    lat = Column(Float, primary_key=True)
+    lon = Column(Float, primary_key=True)
+    source = Column(String, primary_key=True)
+    radius = Column(Float,  primary_key=True)
+    rankby = Column(String, primary_key=True)
+    dtRetrieved = Column(DateTime)
+    content = Column(String)
+
+    def __init__(self, lat=None, lon=None, zipcode=None, radius=None, source=None, key=None):
+        self.lat = np.round(lat, 5) if isnum(lat) else np.nan
+        self.lon = np.round(lon, 5) if isnum(lon) else np.nan
+        self.zipcode = zipcode
+        self.valid = self.__verify_location()
+
+        self.key = key
+        self.radius = radius
+
+        if source is not None:
+            self.source = source.value.get('name')
+            self.__call = source.value.get('call')
+
+    def make_call(self):
+        pass
+
+    @property
+    def dict(self):
+        return dict(
+            lat=self.lat,
+            lon=self.lon,
+            radius=self.radius,
+            source=self.source,
+            dtRetrieved=dt.datetime.now(),
+            content=self.content
+        )
+
+    @property
+    def dataframe(self):
+        return pd.DataFrame(self.dict, index=[0])
+
+    def from_tuple(self, t, source):
+        self.dtRetrieved  = t.dtRetrieved
+        self.lat = t.lat
+        self.lon = t.lon
+        self.radius  = t.radius
+        self.source  = t.source
+        self.rankby  = t.rankby
+        self.content = t.content
+
+        self.__call  = source.value['call']
+        return self
+
+    def __verify_location(self):
+        lat, lon = self.lat, self.lon
+
+        if lat is None and lon is None:
+            return False
+
+        elif (lat is not None and lon is not None) and \
+                (lat < -90 or lat > 90 or lon < -180 or lon > 180):
+            raise ValueError('lat, lon must be in a valid range')
+
+        else:
+            pass
+
+        self.lat = lat
+        self.lon = lon
+
+        return lat != 0 and lon != 0
+
+    def __repr__(self):
+        return f'<PlaceRequest(lat={self.lat}, lon={self.lon}, source={self.source})>'
+
+
+"""ensure the api cache is ready"""
+gcname = 'api_cache.sqlite'
+engine = create_engine(f'sqlite+pysqlite:///{dpath(gcname)}', module=sqlite)
+Base.metadata.create_all(engine)
+del gcname
+
+
+# Yelp ---------------------------------------------------
+def yelp_call(r, key):
+    url = 'https://api.yelp.com/v3/businesses/search'
+    params = {
+        'latitude': r.lat,
+        'longitude': r.lon,
+        'radius': 250,
+        'sort_by': r.rankby
+    }
+
+    with requests.Session() as s:
+        s.headers.update({
+            'Authorization': f'Bearer {key}'
+        })
+
+        response = s.get(url, params=params)
+        result = response.json()
+
+        return dict(
+            lat=r.lat,
+            lon=r.lon,
+            radius=params.get('radius'),
+            rankby=params.get('sort_by'),
+            response=json.dumps(result)
+        )
+
+
+class YelpRankBy(Enum):
+    BEST_MATCH = 'best_match'
+    RATING = 'rating'
+    REVIEW_COUNT = 'review_count'
+    DISTANCE = 'distance'
+
+
+# GMAPS -------------------------------------------------
+class GmapsRankBy(Enum):
+    PROMINENCE = 'prominence'
+
+
+GMAP_TYPE_MAPPINGS = dict(
+    government_offices=[
+        'post_office', 'city_hall', 'courthouse', 'embassy',
+        'local_government_office', 'police', 'fire_station'
+    ],
+    place_of_mourning=[
+        'cemetery', 'funeral_home'
+    ],
+    education=[
+        'school', 'university'
+    ],
+    place_of_worship=[
+        'church', 'hindu_temple', 'mosque', 'synagogue'
+    ],
+    lodging=[
+        'campground', 'lodging', 'rv_park'
+    ],
+    entertainment=[
+        'bar', 'amusement_park', 'aquarium', 'art_gallery', 'bowling_alley',
+        'casino', 'movie_rental', 'movie_theater', 'museum', 'night_club',
+        'stadium', 'zoo', 'library'
+    ],
+    health=[
+        'dentist', 'doctor', 'gym', 'hospital', 'pharmacy', 'physiotherapist'
+    ],
+    finance=[
+        'atm', 'bank', 'insurance_agency'
+    ],
+    repair=[
+        'car_repair', 'car_wash', 'electrician', 'plumber',
+        'roofing_contractor', 'painter', 'locksmith', 'travel_agency'
+    ],
+    transit=[
+        'airport', 'bus_station', 'taxi_stand', 'train_station'
+        'transit_station', 'subway_station', 'travel_agency'
+    ],
+    dining_out=[
+        'bakery', 'cafe', 'meal_delivery', 'meal_takeaway', 'restaurant'
+    ],
+    home_store=[
+        'furniture_store', 'electronics_store', 'hardware_store',
+        'home_goods_store', 'moving_company', 'real_estate_agency',
+        'storage', 'laundry'
+    ],
+    supermarket=[
+        'convenience_store', 'liquor_store', 'supermarket',
+        'grocery_or_supermarket'
+    ],
+    automotive=[
+        'car_dealer', 'car_rental', 'gas_station', 'parking'
+    ],
+    consumer_goods=[
+        'book_store', 'bicycle_store', 'clothing_store', 'department_store',
+        'florist', 'jewelry_store', 'pet_store', 'shoe_store', 'shopping_mall'
+    ],
+    human_services=[
+        'beauty_salon', 'hair_care', 'spa'
+    ]
+)
+
+
+def gmap_call(r, key):
+    gmaps = googlemaps.Client(key=key)
+    nearby_request = gmaps.places_nearby(
+        location=(r.lat, r.lon),
+        radius=r.radius,
+        rank_by='prominence'
+    )
+
+    return dict(
+        lat=r.lat,
+        lon=r.lon,
+        radius=r.radius,
+        rankby=r.rankby,
+        response=json.dumps(nearby_request)
+    )
+
+
+def parse_gmap_types(c):
+    if c is not None:
+        ci_complete = False
+        results = None
+
+        try:
+            # convert single quotes to double and remove dom hyperlinks
+            #c = re.sub(r"(')+", '"', c)
+            c = re.sub(r'</?a[^>]*?>', '', c)
+            c = json.loads(c)
+        except json.JSONDecodeError as e:
+            return dict(
+                rank_order=-1,
+                name='JSONDecodeError',
+                categories=c,
+                major_categories=str(e)
+            )
+
+        for i, r in enumerate(c.get('results')):
+            types = set(r.get('types'))
+
+            if any([t in IGNORED_PLACE_TYPES for t in types]) or ci_complete:
+                continue
+
+            else:
+                name = r.get('name')
+
+                # remove ambiguous types
+                types = types - {'point_of_interest', 'establishment', 'premise'}
+
+                # pull out the major categories
+                major = {
+                    'food', 'store', 'general_contractor', 'finance',
+                    'restaurant', 'park', 'health', 'transit_station',
+                    'lodging', 'place_of_worship', 'doctor'
+                }
+                mc = types.intersection(major)
+                mc = mc if len(mc) > 0 else {'other'}
+                types = types - major
+
+                # remove the following as they're deprecated into 'supermarket' and 'finance'
+                deprecated = {'grocery_or_supermarket', 'atm'}
+                types = types - deprecated
+
+                # manually set department stores
+                if name in ['Sears', 'Macy\'s', 'mygofer', 'Target', 'T.J. Maxx']:
+                    types = {'department_store'}
+                    mc = {'department_store'}
+
+                # manually reduce
+                elif 'gas_station' in types:
+                    types = {'gas_station'}
+                    mc = {'automotive'}
+
+                elif 'shopping_mall' in types:
+                    types = {'shopping_mall'}
+                    mc = {'shopping_mall'}
+
+                elif 'gym' in types:
+                    types = {'gym'}
+                    mc = {'health'}
+
+                elif any([t in GMAP_TYPE_MAPPINGS['supermarket'] for t in types]) or name in ['Fred Meyer']:
+                    mc = {'supermarket'}
+                    types = {'supermarket'}
+
+                elif any([t in GMAP_TYPE_MAPPINGS['government_offices'] for t in types]):
+                    mc = {'government_office'}
+
+                elif any([t in GMAP_TYPE_MAPPINGS['place_of_mourning'] for t in types]):
+                    mc = {'place_of_mourning'}
+
+                elif any([t in GMAP_TYPE_MAPPINGS['education'] for t in types]):
+                    mc = {'education'}
+
+                elif any([t in GMAP_TYPE_MAPPINGS['place_of_worship'] for t in types]):
+                    mc = {'place_of_worship'}
+
+                elif any([t in GMAP_TYPE_MAPPINGS['lodging'] for t in types]) or \
+                        mc == {'park', 'lodging'} or \
+                        mc == {'store', 'lodging'}:
+                    mc = {'lodging'}
+
+                elif any([t in GMAP_TYPE_MAPPINGS['entertainment'] for t in types]):
+                    mc = {'entertainment'}
+
+                elif any([t in GMAP_TYPE_MAPPINGS['health'] for t in types]) or \
+                        mc == {'health', 'doctor'} or \
+                        mc == {'store', 'health', 'doctor'}:
+                    mc = {'health'}
+
+                elif any([t in GMAP_TYPE_MAPPINGS['finance'] for t in types]) or \
+                        mc == {'store', 'finance'}:
+                    mc = {'finance'}
+
+                elif any([t in GMAP_TYPE_MAPPINGS['repair'] for t in types]) or \
+                        mc == {'general_contractor'} or \
+                        mc == {'store', 'general_contractor'}:
+                    mc = {'repair'}
+
+                elif any([t in GMAP_TYPE_MAPPINGS['transit'] for t in types]):
+                    mc = {'transit'}
+
+                elif any([t in GMAP_TYPE_MAPPINGS['dining_out'] for t in types]) or \
+                        mc == {'food'} or \
+                        mc == {'food', 'restaurant'} or \
+                        mc == {'food', 'store', 'restaurant'} or \
+                        mc == {'food', 'store'}:
+                    types = {'restaurant'}
+                    mc = {'dining_out'}
+
+                elif any([t in GMAP_TYPE_MAPPINGS['home_store'] for t in types]):
+                    mc = {'home_store'}
+
+                elif any([t in GMAP_TYPE_MAPPINGS['automotive'] for t in types]):
+                    mc = {'automotive'}
+
+                elif any([t in GMAP_TYPE_MAPPINGS['consumer_goods'] for t in types]) or \
+                        mc == {'food', 'store', 'general_contractor'}:
+                    mc = {'consumer_goods'}
+
+                elif any([t in GMAP_TYPE_MAPPINGS['human_services'] for t in types]):
+                    mc = {'human_services'}
+
+                if mc == {'other'} and len(types) == 0:
+                    types = {'other'}
+
+                # take the left most
+                if len(types) > 1:
+                    types = {list(types)[0]}
+                # or take the major if type doesn't remain
+                elif len(types) == 0:
+                    types = mc
+
+                results = dict(
+                    rank_order=i,
+                    name=name,
+                    categories=', '.join(types),
+                    major_categories=', '.join(mc)
+                )
+
+                ci_complete = True
+
+        return results or dict(rank_order=-1, name='none', categories='none', major_categories='None')
+
+
+# processing -------------------------------------------------------
+def process_request(args):
+    request, key, progress_qu, request_qu, response_qu = args
+
+    if not request.valid:
+        return request.dataframe
+
+    my_pid = os.getpid()
+    request_qu.put(dict(pid=my_pid, type='get', args=(request,)))
+    r = response_qu.get()
+
+    while r['pid'] != my_pid:
+        response_qu.put(r)
+        r = response_qu.get()
+
+    if r['response'] is not None:
+        if progress_qu is not None:
+            progress_qu.put(1)
+        else:
+            pass
+
+        return dict(report=r['response'], hits=1, misses=0)
+    else:
+        pass
+
+    # if we made it this far, we had a cache miss so make the request
+    a, call_complete = 0, False
+    while a < CONNECTION_RESET_ATTEMPTS and not call_complete:
+        try:
+            call_complete = request.call()
+        except ConnectionError:
+            a += 1
+            time.sleep(CONNECTION_WAIT_TIME)
+        except Exception as e:
+            print(f'\n{a} connection reset attempts failed\n')
+            raise e
+
+    # cache our results
+    request_qu.put(dict(type='put', args=(request,)))
+
+    # if monitoring using the progress_bar in utils and a qu is supplied
+    if progress_qu is not None:
+        progress_qu.put(1)
+    else:
+        pass
+
+    return dict(report=request, hits=0, misses=1)
+
+
+def request_nearby_places(request, n_jobs=1, progress_qu=None):
+    if not isinstance(request, list):
+        request = [request]
+
+    # first check our cache to see of we've made the same request
+    man = mul.Manager()
+    request_qu, response_qu = man.Queue(), man.Queue()
+    cman = mul.Process(
+        target=cache_manager, args=(request_qu, response_qu)
+    )
+    cman.start()
+
+    cpus = mul.cpu_count()
+    cpus = cpus if n_jobs == -1 or n_jobs >= cpus else n_jobs
+    pool = mul.Pool(cpus)
+
+    if len(request) == 1:
+        results = [
+            process_request((request[0], progress_qu, request_qu, response_qu))
+        ]
+        request_qu.put(dict(type='end'))
+    else:
+        results = list(pool.map(
+             process_request,
+             [(ri, progress_qu, request_qu, response_qu) for ri in request]
+        ))
+        request_qu.put(dict(type='end'))
+
+    # return dict(content=nearby_request, cache='miss')
+    pool.close(); pool.join()
+    cman.terminate(); cman.join()
+
+    hits = np.sum([r['hits'] for r in results])
+    misses = np.sum([r['misses'] for r in results])
+    results = [r['report'] for r in results]
+
+    return dict(request=results, hits=hits, misses=misses)
+
+
+def cache_manager(request_qu, response_qu):
+    finished = False
+
+    while not finished:
+        with session_scope() as session:
+            try:
+                r = request_qu.get()
+            except EOFError:
+                finished = True
+
+            if r['type'] == 'get':
+                lat, lon, radius, source = r['args']
+                content = get_from_cache(lat, lon, radius, source, session)
+                response_qu.put(
+                    dict(
+                        pid=r['pid'],
+                        response=content)
+                )
+
+            elif r['type'] == 'put':
+                session.add(r['response'])
+
+            elif r['type'] == 'end':
+                finished = True
+
+
+def get_from_cache(r, session):
+    content = session.query(PlaceRequest).filter(and_(
+        (PlaceRequest.lat == r.lat),
+        (PlaceRequest.lon == r.lon),
+        (PlaceRequest.radius == r.radius),
+        (PlaceRequest.source == r.source)
+    )).all()
+
+    if len(content) > 0:
+        content = pd.DataFrame([ri.dict for ri in content])
+        return content
+
+    else:
+        return None
+
+
+class ApiSource(Enum):
+    YELP = dict(
+        name='Yelp',
+        call=yelp_call
+    )
+    GMAPS = dict(
+        name='Google Places',
+        call=gmap_call
+    )
 
 
 # --------------------------------------------------------------------------
@@ -506,10 +1089,6 @@ def geo_distance(lat1, lon1, lat2, lon2):
     return r*c*1000
 
 
-def __geo_distance_wrapper(args):
-    return geo_distance(*args)
-
-
 def geo_pairwise_distances(x, n_jobs=1):
     """
 
@@ -781,10 +1360,11 @@ def gps_dbscan(gps_records, parameters=None):
     dbscan = DBSCAN(
         eps=eps, min_samples=min_samples, metric=metric, n_jobs=n_jobs
     ).fit([(g.lat, g.lon) for g in gps_records])
+    assert len(gps_records) == len(dbscan.labels_)
 
     clusters = extract_cluster_centers(gps_records, dbscan)
+    assert len(set(pd.unique(dbscan.labels_)) - {-1}) == len(clusters)
 
-    assert len(dbscan.labels_) == len(clusters)
     return dbscan.labels_, clusters
 
 
@@ -936,141 +1516,10 @@ def resample_gps_intervals(records):
     return resampled
 
 
-# --------------------------------------------------------------------------
-# Google Places requests
-# --------------------------------------------------------------------------
-def request_nearby_places(lat, lon, radius=50):
-    """retrieve an ordered list of nearby by places
-
-    Notes:
-        results are returned in Google prominence order
-
-    Args:
-        lat: (float) latitude in decimal-degree (DD) format
-        lon: (float) longitude in DD format
-        radius: (float) radius in meters for which to retrieve places
-
-    Raises:
-        ValueError: if -90 > lat > 90 OR -180 > lon > 180
-        EnvironmentError: if no Google Maps API Key is found
-
-    Returns:
-        [brightenv2.context.Place]
-    """
-    __verify_key()
-
-    if lat < -90 or lat > 90 or lon < -180 or lon > 180:
-        raise ValueError('lat, lon must be in a valid range')
-
-    # get the cache
-    cache_fn = 'gmaps_nearby_cache.csv'
-    cache_fn = os.path.join(Path.home(), '.brighten', cache_fn)
-    try:
-        cache = pd.read_csv(cache_fn)
-    except FileNotFoundError:
-        cache = pd.DataFrame(columns=['lat', 'lon', 'content'])
-
-    lat = np.round(lat, 5)
-    lon = np.round(lon, 5)
-
-    # first check our cache to see of we've made the same request
-    nearby = cache.loc[
-        (np.isclose(cache.lat, lat)) & (np.isclose(cache.lon, lon))
-    ] if len(cache) > 0 else []
-
-    if len(nearby) > 0:
-        return dict(
-            content=ast.literal_eval(nearby.content.values[0]),
-            cache='hit'
-        )
-
-    else:
-        # get nearby places from Google
-        gmaps = googlemaps.Client(key=PLACES_KEY)
-        nearby_request = gmaps.places_nearby(
-            location=(lat, lon),
-            radius=radius,
-            rank_by='prominence'
-        )
-
-        result = dict(lat=lat, lon=lon, content=str(nearby_request))
-
-        # make sure the cache has the results
-        cache.loc[-1] = result
-        cache.to_csv(cache_fn, index=None)
-
-        return dict(content=nearby_request, cache='miss')
+def __geo_distance_wrapper(args):
+    return geo_distance(*args)
 
 
-def request_place_details(place_id):
-    return
-    """make a detailed place request through Google Maps
-
-    Args:
-        place_id: (str) representing the Google place_id
-
-    Raises:
-        EnvironmentError: if no Google Maps API Key is found
-
-    Returns:
-        brightenv2.context.Place or None
-    """
-    __verify_key()
-
-    client = googlemaps.Client(key=PLACES_KEY)
-
-    # make the API call
-    try:
-        place_request = client.place(place_id, fields=PLACE_QUERY_FIELDS)
-    except ApiError as e:
-        print(f'The request failed with response: '
-              f'{", ".join([str(a) for a in e.args if a is not None])}')
-        return None
-
-    # parse the place details into brightenv2.context.Place
-    place = None
-    if place_request.get('status') == 'OK':
-        result = place_request.get('result')
-        location = result.get('geometry').get('location')
-
-        categories = result.get('types')
-        name = result.get('name')
-        lat = location.get('lat')
-        lon = location.get('lng')
-        rating = result.get('rating')
-
-        if not STANDALONE:
-            categories = [
-                ctx.Category(name=name) for name in result.get('types')
-            ]
-
-            place = ctx.Place(
-                place_id=place_id,
-                name=name,
-                lat=lat,
-                lon=lon,
-                rating=rating,
-                categories=categories,
-                last_sync=dt.datetime.now()
-            )
-        else:
-            place = dict(
-                place_id=place_id,
-                name=name,
-                lat=lat,
-                lo=lon,
-                rating=rating,
-                categories=categories
-            )
-    else:
-        pass
-
-    return place
-
-
-# --------------------------------------------------------------------------
-# Private Methods
-# --------------------------------------------------------------------------
 def __top_cluster(args):
     if args is not None and len(args) > 0:
         try:
@@ -1092,7 +1541,6 @@ def __validate_scikit_params(parameters):
 
     Args:
         parameters: (dict)
-
     Returns:
         eps, min_samples, metric, n_jobs
     """
@@ -1113,16 +1561,6 @@ def __validate_scikit_params(parameters):
     n_jobs = -1 if n_jobs is None else n_jobs
 
     return eps, min_samples, metric, n_jobs
-
-
-def __verify_key():
-    if PLACES_KEY is None:
-        raise EnvironmentError(
-            'Environment variable: GMAPS_PLACES_KEY not found. Cannot '
-            'complete request.'
-        )
-    else:
-        pass
 
 
 if __name__ == '__main__':

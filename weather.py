@@ -7,14 +7,14 @@ from contextlib import contextmanager
 import datetime as dt
 import multiprocessing as mul
 import os
-import requests
+from pathlib import Path
 from sqlite3 import dbapi2 as sqlite
-from urllib3.exceptions import NewConnectionError
 import time
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import and_, func
+import requests
+from sqlalchemy import and_
 from sqlalchemy import create_engine
 from sqlalchemy import Column, String, Float, DateTime
 from sqlalchemy.orm import sessionmaker
@@ -22,6 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
 import synapseclient
+from urllib3.exceptions import NewConnectionError
 
 
 __author__ = 'Luke Waninger'
@@ -174,15 +175,6 @@ class HourlyWeatherReport(Base):
                f'date={self.time.isoformat()})>'
 
 
-"""verify db cache exists or download if necessary"""
-syn = synapseclient.Synapse()
-syn.login()
-
-weather_cache = syn.get('syn16816655')
-engine = create_engine(f'sqlite+pysqlite:///{weather_cache.path}', module=sqlite)
-Base.metadata.create_all(engine)
-
-
 @contextmanager
 def session_scope():
     """Provide a transactional scope around a series of operations."""
@@ -200,17 +192,56 @@ def session_scope():
         session.close()
 
 
+@contextmanager
+def synapse_scope():
+    syn = synapseclient.Synapse()
+    syn.login()
+
+    try:
+        yield syn
+    except Exception as e:
+        raise e
+    finally:
+        syn.logout()
+
+
+"""verify db cache exists or download if necessary"""
+dpath = lambda x: os.path.join(Path.home(), '.gscap', x)
+
+if not os.path.exists(dpath('')):
+    os.mkdir(dpath(''))
+
+wcname = 'weather_cache.sqlite'
+if not os.path.exists(dpath(wcname)):
+    with synapse_scope() as s:
+        c = s.get('syn16816655', downloadLocation=dpath(''))
+
+engine = create_engine(f'sqlite+pysqlite:///{dpath(wcname)}', module=sqlite)
+Base.metadata.create_all(engine)
+del wcname
+
+
 """All weather requests should come as the following namedtuple"""
 WeatherRequest = namedtuple(
-    'WeatherRequest', ['date', 'lat', 'lon', 'zip_code']
+    'WeatherRequest', ['date', 'lat', 'lon', 'zipcode']
 )
 
 """only open this zips once, download if unavailable"""
-zips = syn.tableQuery('SELECT zipcode, lat, lon FROM syn16816780').asDataFrame()
+zname = 'zips.csv'
+if not os.path.exists(dpath(zname)):
+    with synapse_scope() as s:
+        zips = s.tableQuery('SELECT zipcode, lat, lon FROM syn16816780').asDataFrame()
+        zips.to_csv(dpath(zname), index=None)
+
+zips = pd.read_csv(dpath(zname))
 zips = zips.set_index('zipcode')
+del zname
 
 
 def isnum(x):
+    if x is None:
+        return False
+
     try:
         float(x)
         return True
@@ -252,7 +283,7 @@ def weather_report(
 
     Args:
         request: (weather.WeatherRequest)
-        summarize: (bool)
+        summarize: (str) {'daily', 'weekly'}
         n_jobs: (int) number of procs to use (-1 for all)
         key: (str)
         progress_qu: (multiprocessing.Queue)
@@ -292,6 +323,7 @@ def weather_report(
         results = [process_request(
             (request[0], key, progress_qu, request_qu, response_qu)
         )]
+        request_qu.put(dict(type='end'))
 
     # otherwise startup some parallel tasks
     else:
@@ -302,6 +334,9 @@ def weather_report(
         request_qu.put(dict(type='end'))
 
     if summarize in ['daily', 'weekly']:
+        hits = np.sum([r.get('hits') for r in results])
+        misses = np.sum([r.get('misses') for r in results])
+
         if summarize == 'weekly':
             results = pd.concat([r.get('report') for r in results], sort=True)
             results = results.sort_values(by='time')
@@ -321,7 +356,7 @@ def weather_report(
                     date=np.min(d.time),
                     lat=d.lat.values[0],
                     lon=d.lon.values[0],
-                    zip_code=None
+                    zipcode=d.zipcode.values[0]
                 )
                 for d in [r.get('report') for r in results]
             ]
@@ -333,14 +368,11 @@ def weather_report(
         ))
         report = pd.DataFrame([(r.get('report')) for r in r_])
 
-        r_cols = set(report.columns) - {'date', 'lat', 'lon', 'zip_code', 'summary'}
+        r_cols = set(report.columns) - {'date', 'lat', 'lon', 'zipcode', 'summary'}
 
         # safely round the results
         for c in r_cols:
             report[c] = [np.round(vi, 2) if isnum(vi) else np.nan for vi in report[c]]
-
-        hits = np.sum([r.get('hits') for r in r_])
-        misses = np.sum([r.get('misses') for r in r_])
 
         results = dict(report=report, hits=hits, misses=misses)
 
@@ -352,10 +384,10 @@ def weather_report(
     return results[0] if len(results) == 1 else results
 
 
-def dd_from_zip(zip_code):
+def dd_from_zip(zipcode):
     try:
-        lat = zips.loc[zip_code].lat.values[0]
-        lon = zips.loc[zip_code].lon.values[0]
+        lat = zips.loc[zipcode].lat.values[0]
+        lon = zips.loc[zipcode].lon.values[0]
         return lat, lon
     except:
         return 0, 0
@@ -367,9 +399,12 @@ def get_from_cache(date, lat, lon, session):
     content = session.query(HourlyWeatherReport).filter(and_(
         (HourlyWeatherReport.lat == lat),
         (HourlyWeatherReport.lon == lon),
-        # (cast(HourlyWeatherReport.time, Date) == cast(day, Date))  # this incurs a 10x order of magnitude time cost
-        (HourlyWeatherReport.time == func.datetime(day))
+        #(cast(HourlyWeatherReport.time, Date) == cast(day, Date))
+        #(HourlyWeatherReport.time == func.datetime(day))
     )).all()
+
+    # this is incredibly inefficient but both methods above fail to return results for all queries
+    content = [c for c in content if c.time.date() == day]
 
     if len(content) > 0:
         content = pd.DataFrame([ri.dict for ri in content])
@@ -432,13 +467,13 @@ def summarize_report(args):
     # summary = ', '.join(
     #     list(set(re.sub(r'(,)+', ' ', summary).split(' '))))
 
-    lat, lon = verify_location(ri)
+    lat, lon, zipcode = verify_location(ri)
 
     dm = dict(
         date=ri.date,
         lat=lat,
         lon=lon,
-        zip_code=ri.zip_code,
+        zipcode=zipcode,
         cloud_cover_mean=cc_mean,
         cloud_cover_std=cc_std,
         cloud_cover_median=cc_med,
@@ -468,7 +503,7 @@ def process_request(args):
         year=d.year, month=d.month, day=d.day, hour=12
     )
 
-    lat, lon = verify_location(request)
+    lat, lon, zipcode = verify_location(request)
     if lat == lon == 0:
         return make_empty(day)
 
@@ -486,6 +521,7 @@ def process_request(args):
         else:
             pass
 
+        r['response']['zipcode'] = zipcode
         return dict(report=r['response'], hits=1, misses=0)
     else:
         pass
@@ -544,6 +580,7 @@ def process_request(args):
     else:
         pass
 
+    c['zipcode'] = zipcode
     return dict(report=c, hits=0, misses=1)
 
 
@@ -557,29 +594,29 @@ def put_to_cache(content, session):
 
 def verify_location(request):
     try:
-        lat, lon, zip_code = request.lat, request.lon, request.zip_code
+        lat, lon, zipcode = request.lat, request.lon, request.zipcode
     except AttributeError:
         raise ValueError('either lat, lon or zip must be supplied')
 
-    if (lat is None or lon is None) and zip_code is None:
+    if (lat is None or lon is None) and zipcode is None:
         raise ValueError('either lat, lon or zip must be supplied')
 
     if (lat is not None and lon is not None) and \
             (lat < -90 or lat > 90 or lon < -180 or lon > 180):
         raise ValueError('lat, lon must be in a valid range')
 
-    if zip_code is not None:
-        lat, lon = dd_from_zip(zip_code)
+    if zipcode is not None:
+        lat, lon = dd_from_zip(zipcode)
 
         if lat == lon == 0:
-            print(f'zip <{zip_code}> was not found in db')
+            print(f'zip <{zipcode}> was not found in db')
     else:
         pass
 
     lat = np.round(lat, 1)
     lon = np.round(lon, 1)
 
-    return lat, lon
+    return lat, lon, zipcode
 
 
 def __verify_key():
