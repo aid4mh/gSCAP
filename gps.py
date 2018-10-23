@@ -17,7 +17,6 @@ from sqlite3 import dbapi2 as sqlite
 import time
 
 import googlemaps
-from googlemaps.exceptions import *
 import numpy as np
 import pandas as pd
 from scipy.stats import mode
@@ -39,44 +38,6 @@ __version__ = '0.0.1'
 __maintainer__ = 'Luke Waninger'
 __email__ = 'luke.waninger@gmail.com'
 __status__ = 'development'
-
-
-"""Google Maps place types to ignore 
-https://developers.google.com/places/supported_types
-"""
-IGNORED_PLACE_TYPES = [
-    'administrative_area_level',
-    'administrative_area_level_1',
-    'administrative_area_level_2',
-    'administrative_area_level_3',
-    'administrative_area_level_4',
-    'administrative_area_level_5',
-    'country',
-    'route',
-    'street_address',
-    'street_number',
-    'sublocality',
-    'sublocality_level_5',
-    'sublocality_level_4',
-    'sublocality_level_3',
-    'sublocality_level_2',
-    'sublocality_level_1',
-    'subpremise',
-    'locality',
-    'political'
-]
-
-"""Google Maps place fields to request
- https://developers.google.com/places/web-service/details
- """
-PLACE_QUERY_FIELDS = ['name', 'type', 'rating', 'price_level', 'geometry']
-
-"""ensure the user has an API key to Google Maps"""
-try:
-    PLACES_KEY = os.environ['GMAPS_PLACES_KEY']
-    print(f'Google Places API Key: {PLACES_KEY}')
-except KeyError:
-    print('WARNING: No API key found to access Google Maps.')
 
 """How many times to retry a network timeout 
 and how many seconds to wait between each """
@@ -179,7 +140,7 @@ def zip_from_dd(lat, lon):
         ].dropna()
 
         win68miles['d'] = [geo_distance(lat, lon, r.lat, r.lon) for r in win68miles.itertuples()]
-        return zips.loc[win68miles.d.argmin()].index.tolist()[0]
+        return zips.loc[win68miles.d.idxmin()].index.tolist()[0]
     except:
         return -1
 
@@ -219,18 +180,19 @@ class PlaceRequest(Base):
     dtRetrieved = Column(DateTime)
     content = Column(String)
 
-    def __init__(self, lat=None, lon=None, zipcode=None, radius=None, source=None, key=None):
+    def __init__(self, lat=None, lon=None, radius=None, rankby=None, source=None, key=None):
         self.lat = np.round(lat, 5) if isnum(lat) else np.nan
         self.lon = np.round(lon, 5) if isnum(lon) else np.nan
-        self.zipcode = zipcode
         self.valid = self.__verify_location()
 
         self.key = key
         self.radius = radius
+        self.rankby = rankby.value
 
         if source is not None:
             self.source = source.value.get('name')
-            self.__call = source.value.get('call')
+            self.call = source.value.get('call')
+            self.parse_content = source.value.get('parse_content')
 
     def make_call(self):
         pass
@@ -259,7 +221,8 @@ class PlaceRequest(Base):
         self.rankby  = t.rankby
         self.content = t.content
 
-        self.__call  = source.value['call']
+        self.call  = source.value['call']
+        self.categories = source.value['categories']
         return self
 
     def __verify_location(self):
@@ -291,33 +254,7 @@ Base.metadata.create_all(engine)
 del gcname
 
 
-# Yelp ---------------------------------------------------
-def yelp_call(r, key):
-    url = 'https://api.yelp.com/v3/businesses/search'
-    params = {
-        'latitude': r.lat,
-        'longitude': r.lon,
-        'radius': 250,
-        'sort_by': r.rankby
-    }
-
-    with requests.Session() as s:
-        s.headers.update({
-            'Authorization': f'Bearer {key}'
-        })
-
-        response = s.get(url, params=params)
-        result = response.json()
-
-        return dict(
-            lat=r.lat,
-            lon=r.lon,
-            radius=params.get('radius'),
-            rankby=params.get('sort_by'),
-            response=json.dumps(result)
-        )
-
-
+# Yelp -----------------------------------------------------------------
 class YelpRankBy(Enum):
     BEST_MATCH = 'best_match'
     RATING = 'rating'
@@ -325,105 +262,170 @@ class YelpRankBy(Enum):
     DISTANCE = 'distance'
 
 
-# GMAPS -------------------------------------------------
+with synapse_scope() as s:
+    YELP_TYPE_MAP = pd.read_csv(s.get('syn17011507').path).set_index('cat')
+
+
+def yelp_call(request):
+    url = 'https://api.yelp.com/v3/businesses/search'
+    params = {
+        'latitude': request.lat,
+        'longitude': request.lon,
+        'radius': request.radius,
+        'sort_by': request.rankby
+    }
+    complete = False
+
+    while not complete:
+        with requests.Session() as s:
+            s.headers.update({
+                'Authorization': f'Bearer {request.key}'
+            })
+
+            response = s.get(url, params=params)
+            result = response.json()
+            complete = True
+
+        if 'TOO_MANY_REQUESTS_PER_SECOND' in str(response.content):
+            time.sleep(np.random.exponential(3, 1)[0])
+            complete = False
+
+    request.content = json.dumps(result)
+    return request
+
+
+def parse_yelp_response(c):
+    if not isinstance(c, str):
+        raise TypeError('content must be a string')
+
+    empty = dict(
+            name='not found',
+            rank_order=-1,
+            categories='none',
+            major_categories='none'
+        )
+
+    if c is not None and c.lower() != 'nan':
+        results = None
+
+        try:
+            c = json.loads(c)
+        except json.JSONDecodeError as e:
+            return dict(
+                name=str(e),
+                rank_order=-1,
+                categories=c,
+                major_categories='JSONDecodeError'
+            )
+
+        businesses = c.get('businesses')
+        if businesses is not None:
+            for i, r in enumerate(businesses):
+                name = r.get('name')
+                minor = [ri.get('alias') for ri in r.get('categories')]
+                major = list(set([YELP_TYPE_MAP.loc[mi, 'mapping'] for mi in minor]))
+
+                if 'dining_out' in major:
+                    major = ['dining_out']
+
+                if len(major) > 1:
+                    major = [major[0]]
+
+                results = dict(
+                    name=name,
+                    rank_order=i,
+                    categories=', '.join(minor),
+                    major_categories=', '.join(major)
+                )
+                break
+        return results or empty
+    else:
+        return empty
+
+
+# GMAPS ----------------------------------------------------------------
+"""Google Maps place types to ignore 
+https://developers.google.com/places/supported_types
+"""
+IGNORED_PLACE_TYPES = [
+    'administrative_area_level',
+    'administrative_area_level_1',
+    'administrative_area_level_2',
+    'administrative_area_level_3',
+    'administrative_area_level_4',
+    'administrative_area_level_5',
+    'country',
+    'route',
+    'street_address',
+    'street_number',
+    'sublocality',
+    'sublocality_level_5',
+    'sublocality_level_4',
+    'sublocality_level_3',
+    'sublocality_level_2',
+    'sublocality_level_1',
+    'subpremise',
+    'locality',
+    'political'
+]
+
+"""Google Maps place fields to request
+ https://developers.google.com/places/web-service/details
+ """
+PLACE_QUERY_FIELDS = ['name', 'type', 'rating', 'price_level', 'geometry']
+
+
 class GmapsRankBy(Enum):
     PROMINENCE = 'prominence'
 
 
-GMAP_TYPE_MAPPINGS = dict(
-    government_offices=[
-        'post_office', 'city_hall', 'courthouse', 'embassy',
-        'local_government_office', 'police', 'fire_station'
-    ],
-    place_of_mourning=[
-        'cemetery', 'funeral_home'
-    ],
-    education=[
-        'school', 'university'
-    ],
-    place_of_worship=[
-        'church', 'hindu_temple', 'mosque', 'synagogue'
-    ],
-    lodging=[
-        'campground', 'lodging', 'rv_park'
-    ],
-    entertainment=[
-        'bar', 'amusement_park', 'aquarium', 'art_gallery', 'bowling_alley',
-        'casino', 'movie_rental', 'movie_theater', 'museum', 'night_club',
-        'stadium', 'zoo', 'library'
-    ],
-    health=[
-        'dentist', 'doctor', 'gym', 'hospital', 'pharmacy', 'physiotherapist'
-    ],
-    finance=[
-        'atm', 'bank', 'insurance_agency'
-    ],
-    repair=[
-        'car_repair', 'car_wash', 'electrician', 'plumber',
-        'roofing_contractor', 'painter', 'locksmith', 'travel_agency'
-    ],
-    transit=[
-        'airport', 'bus_station', 'taxi_stand', 'train_station'
-        'transit_station', 'subway_station', 'travel_agency'
-    ],
-    dining_out=[
-        'bakery', 'cafe', 'meal_delivery', 'meal_takeaway', 'restaurant'
-    ],
-    home_store=[
-        'furniture_store', 'electronics_store', 'hardware_store',
-        'home_goods_store', 'moving_company', 'real_estate_agency',
-        'storage', 'laundry'
-    ],
-    supermarket=[
-        'convenience_store', 'liquor_store', 'supermarket',
-        'grocery_or_supermarket'
-    ],
-    automotive=[
-        'car_dealer', 'car_rental', 'gas_station', 'parking'
-    ],
-    consumer_goods=[
-        'book_store', 'bicycle_store', 'clothing_store', 'department_store',
-        'florist', 'jewelry_store', 'pet_store', 'shoe_store', 'shopping_mall'
-    ],
-    human_services=[
-        'beauty_salon', 'hair_care', 'spa'
-    ]
-)
+with synapse_scope() as s:
+    GMAP_TYPE_MAPPINGS = pd.read_csv(s.get('syn17011508').path).set_index('cat')
 
 
-def gmap_call(r, key):
-    gmaps = googlemaps.Client(key=key)
+def gmapping(x):
+    t = None
+    try:
+        t = GMAP_TYPE_MAPPINGS.loc[x].mapping
+    except KeyError:
+        pass
+
+    if isinstance(t, pd.Series):
+        t = t.tolist()[0]
+
+    if t is not None and 'Expecting value:' in t:
+        t = 'JSON Decode Error'
+
+    return {t} if t is not None else {'undefined category'}
+
+
+def gmap_call(request):
+    gmaps = googlemaps.Client(key=request.key)
     nearby_request = gmaps.places_nearby(
-        location=(r.lat, r.lon),
-        radius=r.radius,
+        location=(request.lat, request.lon),
+        radius=request.radius,
         rank_by='prominence'
     )
 
-    return dict(
-        lat=r.lat,
-        lon=r.lon,
-        radius=r.radius,
-        rankby=r.rankby,
-        response=json.dumps(nearby_request)
-    )
+    request.content = json.dumps(nearby_request)
+    return request
 
 
-def parse_gmap_types(c):
+def parse_gmap_response(c):
     if c is not None:
         ci_complete = False
         results = None
 
         try:
-            # convert single quotes to double and remove dom hyperlinks
-            #c = re.sub(r"(')+", '"', c)
+            # remove dom hyperlinks
             c = re.sub(r'</?a[^>]*?>', '', c)
             c = json.loads(c)
         except json.JSONDecodeError as e:
             return dict(
                 rank_order=-1,
-                name='JSONDecodeError',
+                name=str(e),
                 categories=c,
-                major_categories=str(e)
+                major_categories='JSONDecodeError'
             )
 
         for i, r in enumerate(c.get('results')):
@@ -440,7 +442,7 @@ def parse_gmap_types(c):
 
                 # pull out the major categories
                 major = {
-                    'food', 'store', 'general_contractor', 'finance',
+                    'food', 'store', 'repair', 'finance',
                     'restaurant', 'park', 'health', 'transit_station',
                     'lodging', 'place_of_worship', 'doctor'
                 }
@@ -448,100 +450,68 @@ def parse_gmap_types(c):
                 mc = mc if len(mc) > 0 else {'other'}
                 types = types - major
 
-                # remove the following as they're deprecated into 'supermarket' and 'finance'
-                deprecated = {'grocery_or_supermarket', 'atm'}
-                types = types - deprecated
-
-                # manually set department stores
+                # manually set type by known names
                 if name in ['Sears', 'Macy\'s', 'mygofer', 'Target', 'T.J. Maxx']:
                     types = {'department_store'}
-                    mc = {'department_store'}
+
+                elif name in ['Fred Meyer']:
+                    types = {'supermarket'}
 
                 # manually reduce
                 elif 'gas_station' in types:
                     types = {'gas_station'}
-                    mc = {'automotive'}
 
-                elif 'shopping_mall' in types:
-                    types = {'shopping_mall'}
-                    mc = {'shopping_mall'}
+                elif 'lodging' in mc:
+                    types = {'lodging'}
 
-                elif 'gym' in types:
-                    types = {'gym'}
-                    mc = {'health'}
+                elif 'transit_station' in mc:
+                    types = {'transit_station'}
 
-                elif any([t in GMAP_TYPE_MAPPINGS['supermarket'] for t in types]) or name in ['Fred Meyer']:
-                    mc = {'supermarket'}
+                elif mc == {'health', 'doctor'} or \
+                        mc == {'store', 'health', 'doctor'}:
+                    types = {'health'}
+
+                elif 'health' in mc and 'store' in mc:
                     types = {'supermarket'}
 
-                elif any([t in GMAP_TYPE_MAPPINGS['government_offices'] for t in types]):
-                    mc = {'government_office'}
+                elif mc == {'store', 'finance'}:
+                    types = {'finance'}
 
-                elif any([t in GMAP_TYPE_MAPPINGS['place_of_mourning'] for t in types]):
-                    mc = {'place_of_mourning'}
+                elif mc == {'store', 'general_contractor'}:
+                    types = {'repair'}
 
-                elif any([t in GMAP_TYPE_MAPPINGS['education'] for t in types]):
-                    mc = {'education'}
+                elif 'restaurant' in mc:
+                    mc = gmapping('restaurant')
 
-                elif any([t in GMAP_TYPE_MAPPINGS['place_of_worship'] for t in types]):
-                    mc = {'place_of_worship'}
+                elif mc == {'food', 'store'}:
+                    mc = gmapping('supermarket')
 
-                elif any([t in GMAP_TYPE_MAPPINGS['lodging'] for t in types]) or \
-                        mc == {'park', 'lodging'} or \
-                        mc == {'store', 'lodging'}:
-                    mc = {'lodging'}
+                elif mc == {'food', 'store', 'general_contractor'}:
+                    types = {'consumer_goods'}
 
-                elif any([t in GMAP_TYPE_MAPPINGS['entertainment'] for t in types]):
-                    mc = {'entertainment'}
+                # take the left most
+                if len(types) == 0:
+                    types = mc
+                elif len(types) == 1:
+                    mc = gmapping(list(types)[0])
+                elif len(types) > 1:
+                    t = list(types)[0]
+                    types = {t}
+                    mc = gmapping(t)
 
-                elif any([t in GMAP_TYPE_MAPPINGS['health'] for t in types]) or \
-                        mc == {'health', 'doctor'} or \
-                        mc == {'store', 'health', 'doctor'}:
-                    mc = {'health'}
+                if len(mc) > 1:
+                    mc = {list(mc)[0]}
 
-                elif any([t in GMAP_TYPE_MAPPINGS['finance'] for t in types]) or \
-                        mc == {'store', 'finance'}:
-                    mc = {'finance'}
+                if mc == {'store'}:
+                    mc = gmapping('store')
 
-                elif any([t in GMAP_TYPE_MAPPINGS['repair'] for t in types]) or \
-                        mc == {'general_contractor'} or \
-                        mc == {'store', 'general_contractor'}:
-                    mc = {'repair'}
-
-                elif any([t in GMAP_TYPE_MAPPINGS['transit'] for t in types]):
-                    mc = {'transit'}
-
-                elif any([t in GMAP_TYPE_MAPPINGS['dining_out'] for t in types]) or \
-                        mc == {'food'} or \
-                        mc == {'food', 'restaurant'} or \
-                        mc == {'food', 'store', 'restaurant'} or \
-                        mc == {'food', 'store'}:
-                    types = {'restaurant'}
-                    mc = {'dining_out'}
-
-                elif any([t in GMAP_TYPE_MAPPINGS['home_store'] for t in types]):
-                    mc = {'home_store'}
-
-                elif any([t in GMAP_TYPE_MAPPINGS['automotive'] for t in types]):
-                    mc = {'automotive'}
-
-                elif any([t in GMAP_TYPE_MAPPINGS['consumer_goods'] for t in types]) or \
-                        mc == {'food', 'store', 'general_contractor'}:
-                    mc = {'consumer_goods'}
-
-                elif any([t in GMAP_TYPE_MAPPINGS['human_services'] for t in types]):
-                    mc = {'human_services'}
+                elif mc == {'food'}:
+                    mc = gmapping('food')
 
                 if mc == {'other'} and len(types) == 0:
                     types = {'other'}
 
-                # take the left most
-                if len(types) > 1:
-                    types = {list(types)[0]}
                 # or take the major if type doesn't remain
-                elif len(types) == 0:
-                    types = mc
-
                 results = dict(
                     rank_order=i,
                     name=name,
@@ -551,12 +521,12 @@ def parse_gmap_types(c):
 
                 ci_complete = True
 
-        return results or dict(rank_order=-1, name='none', categories='none', major_categories='None')
+        return results or dict(rank_order=-1, name='not found', categories='none', major_categories='none')
 
 
-# processing -------------------------------------------------------
+# processing ------------------------------------------------------------
 def process_request(args):
-    request, key, progress_qu, request_qu, response_qu = args
+    request, force, progress_qu, request_qu, response_qu = args
 
     if not request.valid:
         return request.dataframe
@@ -565,34 +535,36 @@ def process_request(args):
     request_qu.put(dict(pid=my_pid, type='get', args=(request,)))
     r = response_qu.get()
 
-    while r['pid'] != my_pid:
-        response_qu.put(r)
-        r = response_qu.get()
+    if not force:
+        while r['pid'] != my_pid:
+            response_qu.put(r)
+            r = response_qu.get()
 
-    if r['response'] is not None:
-        if progress_qu is not None:
-            progress_qu.put(1)
+        if r['response'] is not None:
+            if progress_qu is not None:
+                progress_qu.put(1)
+            else:
+                pass
+
+            return dict(report=r['response'].dict, hits=1, misses=0)
         else:
             pass
-
-        return dict(report=r['response'], hits=1, misses=0)
-    else:
-        pass
 
     # if we made it this far, we had a cache miss so make the request
     a, call_complete = 0, False
     while a < CONNECTION_RESET_ATTEMPTS and not call_complete:
         try:
-            call_complete = request.call()
+            result = request.call(request)
+            call_complete = True
         except ConnectionError:
             a += 1
+            print(f'\n{a} connection attempts failed\n')
             time.sleep(CONNECTION_WAIT_TIME)
         except Exception as e:
-            print(f'\n{a} connection reset attempts failed\n')
             raise e
 
     # cache our results
-    request_qu.put(dict(type='put', args=(request,)))
+    request_qu.put(dict(type='put', args=(result,)))
 
     # if monitoring using the progress_bar in utils and a qu is supplied
     if progress_qu is not None:
@@ -600,10 +572,10 @@ def process_request(args):
     else:
         pass
 
-    return dict(report=request, hits=0, misses=1)
+    return dict(report=result.dict, hits=0, misses=1)
 
 
-def request_nearby_places(request, n_jobs=1, progress_qu=None):
+def request_nearby_places(request, n_jobs=1, force=False, progress_qu=None):
     if not isinstance(request, list):
         request = [request]
 
@@ -621,23 +593,36 @@ def request_nearby_places(request, n_jobs=1, progress_qu=None):
 
     if len(request) == 1:
         results = [
-            process_request((request[0], progress_qu, request_qu, response_qu))
+            process_request((request[0], force, progress_qu, request_qu, response_qu))
         ]
         request_qu.put(dict(type='end'))
     else:
         results = list(pool.map(
              process_request,
-             [(ri, progress_qu, request_qu, response_qu) for ri in request]
+             [(ri, force, progress_qu, request_qu, response_qu) for ri in request]
         ))
         request_qu.put(dict(type='end'))
 
-    # return dict(content=nearby_request, cache='miss')
-    pool.close(); pool.join()
-    cman.terminate(); cman.join()
+    pool.close(); pool.join(); del pool
+    cman.terminate(); cman.join(); del cman
 
     hits = np.sum([r['hits'] for r in results])
     misses = np.sum([r['misses'] for r in results])
-    results = [r['report'] for r in results]
+    results = pd.DataFrame(
+        [r['report'] for r in results],
+        index=np.arange(len(results))
+    )
+
+    for r, ir in zip(request, results.iterrows()):
+        idx, row = ir
+
+        t = r.parse_content(str(row.content))
+        results.loc[idx, 'name'] = t['name']
+        results.loc[idx, 'rank_order'] = t['rank_order']
+        results.loc[idx, 'categories'] = t['categories']
+        results.loc[idx, 'major_categories'] = t['major_categories']
+
+    results = results.drop(columns='content')
 
     return dict(request=results, hits=hits, misses=misses)
 
@@ -651,10 +636,11 @@ def cache_manager(request_qu, response_qu):
                 r = request_qu.get()
             except EOFError:
                 finished = True
+                continue
 
             if r['type'] == 'get':
-                lat, lon, radius, source = r['args']
-                content = get_from_cache(lat, lon, radius, source, session)
+                request = r['args'][0]
+                content = get_from_cache(request, session)
                 response_qu.put(
                     dict(
                         pid=r['pid'],
@@ -662,37 +648,65 @@ def cache_manager(request_qu, response_qu):
                 )
 
             elif r['type'] == 'put':
-                session.add(r['response'])
+                put_to_cache(r['args'][0], session)
 
             elif r['type'] == 'end':
                 finished = True
 
 
 def get_from_cache(r, session):
-    content = session.query(PlaceRequest).filter(and_(
+    a = session.query(PlaceRequest).filter(and_(
         (PlaceRequest.lat == r.lat),
         (PlaceRequest.lon == r.lon),
         (PlaceRequest.radius == r.radius),
         (PlaceRequest.source == r.source)
+    )).first()
+
+    return  a
+
+
+def put_to_cache(r, session):
+    a = session.query(PlaceRequest).filter(and_(
+        (PlaceRequest.lat == r.lat) &
+        (PlaceRequest.lon == r.lon) &
+        (PlaceRequest.source == r.source) &
+        (PlaceRequest.radius == r.radius)
     )).all()
 
-    if len(content) > 0:
-        content = pd.DataFrame([ri.dict for ri in content])
-        return content
+    for ai in a:
+        ai.delete()
+
+    now = dt.datetime.now()
+    r.dtRetrieved = dt.datetime(
+        year=now.year, month=now.month, day=now.day, hour=now.hour, minute=now.minute
+    )
+    session.add(r)
+
+
+# source mappings ------------------------------------------------------
+def api_source(item):
+    if item == 'Google Places':
+        return ApiSource.GMAPS
+
+    elif item == 'Yelp':
+        return ApiSource.YELP
 
     else:
-        return None
+        raise KeyError(f'{item} is not a valid API source')
 
 
 class ApiSource(Enum):
     YELP = dict(
         name='Yelp',
-        call=yelp_call
+        call=yelp_call,
+        parse_content=parse_yelp_response
     )
     GMAPS = dict(
         name='Google Places',
-        call=gmap_call
+        call=gmap_call,
+        parse_content=parse_gmap_response
     )
+    FROM_NAME = api_source
 
 
 # --------------------------------------------------------------------------
@@ -704,11 +718,12 @@ def cluster_metrics(clusters, entries):
     else:
         pass
 
-    stats, dfs = [], []
-
+    stats = []
     grouped = entries.groupby('cid')
+
     for name, group in grouped:
         df = pd.DataFrame(group)
+        df = df.sort_values(by='midpoint')
 
         df['day'] = df.time_in.apply(
             lambda r: dt.date(year=r.year, month=r.month, day=r.day)
@@ -772,6 +787,12 @@ def cluster_metrics(clusters, entries):
         groups_by_ymonth = [pd.DataFrame(g) for n, g in groups_by_ymonth]
         ymonthly_counts  = [len(g) for g in groups_by_ymonth]
 
+        # mean time interval between visits - Mobile Phone Detection of Semantic Location and...
+        # rolling mean between entry midpoint pairs
+        df['ns'] = df.midpoint.apply(lambda x: x.timestamp())
+        mti = df.ns.rolling(window=2).apply(lambda x: x[1] - x[0], raw=True)
+        mti = np.round(np.mean(mti)/3600, 3)
+
         stats.append(
             dict(
                 cid=name,
@@ -781,46 +802,46 @@ def cluster_metrics(clusters, entries):
                 std_duration=np.round(df.duration.std().total_seconds()/3600, 3),
                 max_duration=np.round(df.duration.max().total_seconds()/3600, 3),
                 min_duration=np.round(df.duration.min().total_seconds()/3600, 3),
-                earliest_time_in=df.in_tod.min(),
-                latest_time_in=df.in_tod.max(),
-                earliest_time_out=df.out_tod.min(),
-                latest_time_out=df.out_tod.max(),
-                days_entered=int(len(daily_counts)),
-                count_before_9=int(np.sum([
-                    1 for r in df.in_tod if r < dt.time(hour=9)
-                ])),
-                count_between_9_12=int(np.sum([
-                    1 for r in df.in_tod
-                    if dt.time(hour=9) <= r < dt.time(hour=12)
-                ])),
-                count_between_12_5=int(np.sum([
-                    1 for r in df.in_tod
-                    if dt.time(hour=5) <= r < dt.time(hour=17)
-                ])),
-                count_after_5=int(np.sum([
-                    1 for r in df.in_tod if dt.time(hour=17) <= r
-                ])),
-                max_entries_per_day=int(np.max(daily_counts)),
-                min_entries_per_day=int(np.min(daily_counts)),
-                mean_entries_per_day=np.round(np.mean(daily_counts), 3),
-                std_entries_per_day=np.round(np.std(daily_counts), 3),
-                max_entries_per_week=int(np.max(weekly_counts)),
-                min_entries_per_week=int(np.min(weekly_counts)),
-                mean_entries_per_week=np.round(np.mean(weekly_counts), 3),
-                std_entries_per_week=np.round(np.std(weekly_counts), 3),
-                max_entries_per_month=int(np.max(ymonthly_counts)),
-                min_entries_per_month=int(np.min(ymonthly_counts)),
-                mean_entries_per_month=np.round(np.mean(ymonthly_counts), 3),
-                std_entries_per_month=np.round(np.std(ymonthly_counts), 3),
-                most_common_hod_in=int(counts_by_itod[0][0]),
-                most_common_hod_out=int(counts_by_otod[0][0]),
-                most_common_dow=int(counts_by_dow[0][0]),
-                most_common_dow_cnt=int(counts_by_dow[0][1]),
-                most_common_month=int(counts_by_month[0][0]),
-                most_common_month_cnt=int(counts_by_month[0][1]),
+                # earliest_time_in=df.in_tod.min(),
+                # latest_time_in=df.in_tod.max(),
+                # earliest_time_out=df.out_tod.min(),
+                # latest_time_out=df.out_tod.max(),
+                # days_entered=int(len(daily_counts)),
+                # count_before_9=int(np.sum([
+                #     1 for r in df.in_tod if r < dt.time(hour=9)
+                # ])),
+                # count_between_9_12=int(np.sum([
+                #     1 for r in df.in_tod
+                #     if dt.time(hour=9) <= r < dt.time(hour=12)
+                # ])),
+                # count_between_12_5=int(np.sum([
+                #     1 for r in df.in_tod
+                #     if dt.time(hour=5) <= r < dt.time(hour=17)
+                # ])),
+                # count_after_5=int(np.sum([
+                #     1 for r in df.in_tod if dt.time(hour=17) <= r
+                # ])),
+                # max_entries_per_day=int(np.max(daily_counts)),
+                # min_entries_per_day=int(np.min(daily_counts)),
+                # mean_entries_per_day=np.round(np.mean(daily_counts), 3),
+                # std_entries_per_day=np.round(np.std(daily_counts), 3),
+                # max_entries_per_week=int(np.max(weekly_counts)),
+                # min_entries_per_week=int(np.min(weekly_counts)),
+                # mean_entries_per_week=np.round(np.mean(weekly_counts), 3),
+                # std_entries_per_week=np.round(np.std(weekly_counts), 3),
+                # max_entries_per_month=int(np.max(ymonthly_counts)),
+                # min_entries_per_month=int(np.min(ymonthly_counts)),
+                # mean_entries_per_month=np.round(np.mean(ymonthly_counts), 3),
+                # std_entries_per_month=np.round(np.std(ymonthly_counts), 3),
+                # most_common_hod_in=int(counts_by_itod[0][0]),
+                # most_common_hod_out=int(counts_by_otod[0][0]),
+                # most_common_dow=int(counts_by_dow[0][0]),
+                # most_common_dow_cnt=int(counts_by_dow[0][1]),
+                # most_common_month=int(counts_by_month[0][0]),
+                # most_common_month_cnt=int(counts_by_month[0][1]),
+                mean_ti_between_visits=mti,
             )
         )
-
 
     if len(stats) > 0:
         stats = pd.DataFrame().from_dict(stats)
@@ -949,7 +970,8 @@ def estimate_home_location(records, parameters=None):
     """
     gpr = [
         (i, GPS(g.lat, g.lon, g.ts)) for i, g in enumerate(records.itertuples())
-        if (17 < g.ts.hour or g.ts.hour < 9)
+        if (0 < g.ts.hour or g.ts.hour < 6) # change made by recomendation of paper.
+        # TODO: FIND THE SOURCE
     ]
 
     args = gps_dbscan([t[1] for t in gpr], parameters=parameters)
@@ -1330,10 +1352,19 @@ def get_cluster_times(records, clusters):
 
         return 'err'
 
+    def ccat(cid):
+        c = clusters.loc[clusters.cid == cid, 'categories'].values
+
+        if len(c) > 0:
+            return c[0]
+
+        return 'err'
+
     if 'cid' not in entries.columns:
         return None
     else:
         entries['cname'] = entries.cid.apply(cname)
+        entries['category'] = entries.cid.apply(ccat)
 
     return entries
 

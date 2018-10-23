@@ -42,15 +42,8 @@ DARK_SKY_URL = 'https://api.darksky.net/forecast'
 """How many times to retry a network timeout 
 and how many seconds to wait between each """
 CONNECTION_RESET_ATTEMPTS = 99
-CONNECTION_WAIT_TIME = \
-    60
+CONNECTION_WAIT_TIME = 60
 
-"""ensure the user has an API key to Google Maps"""
-try:
-    DARK_SKY_KEY = os.environ['DARK_SKY_KEY']
-except KeyError:
-    print('WARNING: No API key found to access weather data. '
-          'A key must be supplied with each weather request')
 
 """Dark Sky hourly call columns"""
 HOURLY_COLS = [
@@ -212,10 +205,6 @@ if not os.path.exists(dpath('')):
     os.mkdir(dpath(''))
 
 wcname = 'weather_cache.sqlite'
-if not os.path.exists(dpath(wcname)):
-    with synapse_scope() as s:
-        c = s.get('syn16816655', downloadLocation=dpath(''))
-
 engine = create_engine(f'sqlite+pysqlite:///{dpath(wcname)}', module=sqlite)
 Base.metadata.create_all(engine)
 del wcname
@@ -276,7 +265,7 @@ def cache_manager(request_qu, response_qu):
 
 
 def weather_report(
-        request, summarize='daily', key=None, n_jobs=1, progress_qu=None
+        request, key, summarize='daily', n_jobs=1, progress_qu=None
 ):
 
     """retrieve a weather report for specific lat, lon, and day
@@ -295,12 +284,6 @@ def weather_report(
     Returns:
         pd.DataFrame containing hourly (24 rows) or daily (1 row) data else None
     """
-    # validate the API key
-    if key is None:
-        key = __verify_key()
-    else:
-        pass
-
     # make sure the request is in the correct data type
     if not isinstance(request, list):
         request = [request]
@@ -384,6 +367,33 @@ def weather_report(
     return results[0] if len(results) == 1 else results
 
 
+def geo_distance(lat1, lon1, lat2, lon2):
+    """calculates the geographic distance between coordinates
+    https://www.movable-type.co.uk/scripts/latlong.html
+
+    Args:
+        lat1: (float)
+        lon1: (float)
+        lat2: (float)
+        lon2: (float)
+        metric: (str) in { 'meters', 'km', 'mile' }
+
+    Returns:
+        float representing the distance in meters
+    """
+    r = 6371.0
+    lat1, lon1 = np.radians(lat1), np.radians(lon1)
+    lat2, lon2 = np.radians(lat2), np.radians(lon2)
+
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+
+    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+
+    return r*c*1000
+
+
 def dd_from_zip(zipcode):
     try:
         lat = zips.loc[zipcode].lat.values[0]
@@ -391,6 +401,20 @@ def dd_from_zip(zipcode):
         return lat, lon
     except:
         return 0, 0
+
+
+def zip_from_dd(lat, lon):
+    try:
+        # get closest zip within 7 miles
+        win68miles = zips.loc[
+            (np.round(zips.lat, 0) == np.round(lat, 0)) &
+            (np.round(zips.lon, 0) == np.round(lon, 0))
+        ].dropna()
+
+        win68miles['d'] = [geo_distance(lat, lon, r.lat, r.lon) for r in win68miles.itertuples()]
+        return zips.loc[win68miles.d.idxmin()].index.tolist()[0]
+    except:
+        return -1
 
 
 def get_from_cache(date, lat, lon, session):
@@ -617,18 +641,6 @@ def verify_location(request):
     lon = np.round(lon, 1)
 
     return lat, lon, zipcode
-
-
-def __verify_key():
-    if DARK_SKY_KEY is None:
-        raise EnvironmentError(
-            'Environment variable: DARK_SKY_KEY not found. Cannot '
-            'complete request.'
-        )
-    else:
-        pass
-
-    return DARK_SKY_KEY
 
 
 def remove_null_island():
