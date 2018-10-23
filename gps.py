@@ -4,20 +4,30 @@
 
 import ast
 from collections import *
+from contextlib import contextmanager
 import datetime as dt
+from enum import Enum
+import json
 import multiprocessing as mul
 import os
 from pathlib import Path
 import re
+import requests
+from sqlite3 import dbapi2 as sqlite
+import time
 
 import googlemaps
-from googlemaps.exceptions import *
 import numpy as np
 import pandas as pd
 from scipy.stats import mode
 from sklearn.cluster import DBSCAN
+from sqlalchemy import and_, create_engine
+from sqlalchemy import Column, String, Float, DateTime
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.declarative import declarative_base
 import synapseclient
-from synapseclient import File, Project
+from urllib3.exceptions import ConnectionError
 
 __author__ = 'Luke Waninger'
 __copyright__ = 'Copyright 2018, University of Washington'
@@ -29,14 +39,311 @@ __maintainer__ = 'Luke Waninger'
 __email__ = 'luke.waninger@gmail.com'
 __status__ = 'development'
 
+"""How many times to retry a network timeout 
+and how many seconds to wait between each """
+CONNECTION_RESET_ATTEMPTS = 99
+CONNECTION_WAIT_TIME = 60
 
-"""login to Synapse to sync data directory and cache"""
-syn = synapseclient.Synapse()
-syn.login()
-
-syn_project = syn.get(Project(name='GSCAP Data'))
+"""named tuple used to clarify types used in the scripts below"""
+GPS = namedtuple('GPS', ['lat', 'lon', 'ts'])
+Cluster = namedtuple('Cluster', ['lat', 'lon', 'cid'])
 
 
+@contextmanager
+def synapse_scope():
+    syn = synapseclient.Synapse()
+    syn.login()
+
+    try:
+        yield syn
+    except Exception as e:
+        raise e
+    finally:
+        syn.logout()
+
+
+"""verify db cache exists or download if necessary"""
+dpath = lambda x: os.path.join(Path.home(), '.gscap', x)
+
+if not os.path.exists(dpath('')):
+    os.mkdir(dpath(''))
+
+"""only open this zips once, download if unavailable"""
+zname = 'zips.csv'
+if not os.path.exists(dpath(zname)):
+    with synapse_scope() as s:
+        zips = s.tableQuery('SELECT zipcode, lat, lon FROM syn16816780').asDataFrame()
+        zips.to_csv(dpath(zname), index=None)
+
+zips = pd.read_csv(dpath(zname))
+zips = zips.set_index('zipcode')
+del zname
+
+
+# --------------------------------------------------------------------------
+# Misc stuff
+# --------------------------------------------------------------------------
+def as_pydate(date):
+    ismil = True
+
+    if any(s in date for s in ['a.m.', 'AM', 'a. m.']):
+        date = re.sub(r'(a.m.|a. m.|AM)', '', date).strip()
+
+    if any(s in date for s in ['p.m.', 'p. m.', 'PM']):
+        date = re.sub(r'(p.m.|p. m.|PM)', '', date).strip()
+        ismil = False
+
+    if '/' in date:
+        date = re.sub('/', '-', date)
+
+    try:
+        date = dt.datetime.strptime(date, '%d-%m-%y %H:%M')
+
+    except ValueError as e:
+        argstr = ''.join(e.args)
+
+        if ':' in argstr:
+            date = dt.datetime.strptime(date, '%d-%m-%y %H:%M:%S')
+        else:
+            raise e
+
+    date = date + dt.timedelta(hours=12) if not ismil else date
+    return date
+
+
+def isnum(x):
+    if x is None:
+        return False
+
+    try:
+        float(x)
+        return True
+    except TypeError:
+        return False
+
+
+def dd_from_zip(zipcode):
+    try:
+        lat = zips.loc[zipcode].lat.values[0]
+        lon = zips.loc[zipcode].lon.values[0]
+        return lat, lon
+    except:
+        return 0, 0
+
+
+def zip_from_dd(lat, lon):
+    try:
+        # get closest zip within 7 miles
+        win68miles = zips.loc[
+            (np.round(zips.lat, 0) == np.round(lat, 0)) &
+            (np.round(zips.lon, 0) == np.round(lon, 0))
+        ].dropna()
+
+        win68miles['d'] = [geo_distance(lat, lon, r.lat, r.lon) for r in win68miles.itertuples()]
+        return zips.loc[win68miles.d.idxmin()].index.tolist()[0]
+    except:
+        return -1
+
+
+# --------------------------------------------------------------------------
+# API calls and caching
+# --------------------------------------------------------------------------
+""" SQLAlchemy declarative base for ORM features """
+Base = declarative_base()
+
+
+@contextmanager
+def session_scope():
+    """Provide a transactional scope around a series of operations."""
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        yield session
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+
+class PlaceRequest(Base):
+    __tablename__ = 'apicalls'
+
+    lat = Column(Float, primary_key=True)
+    lon = Column(Float, primary_key=True)
+    source = Column(String, primary_key=True)
+    radius = Column(Float,  primary_key=True)
+    rankby = Column(String, primary_key=True)
+    dtRetrieved = Column(DateTime)
+    content = Column(String)
+
+    def __init__(self, lat=None, lon=None, radius=None, rankby=None, source=None, key=None):
+        self.lat = np.round(lat, 5) if isnum(lat) else np.nan
+        self.lon = np.round(lon, 5) if isnum(lon) else np.nan
+        self.valid = self.__verify_location()
+
+        self.key = key
+        self.radius = radius
+        self.rankby = rankby.value
+
+        if source is not None:
+            self.source = source.value.get('name')
+            self.call = source.value.get('call')
+            self.parse_content = source.value.get('parse_content')
+
+    def make_call(self):
+        pass
+
+    @property
+    def dict(self):
+        return dict(
+            lat=self.lat,
+            lon=self.lon,
+            radius=self.radius,
+            source=self.source,
+            dtRetrieved=dt.datetime.now(),
+            content=self.content
+        )
+
+    @property
+    def dataframe(self):
+        return pd.DataFrame(self.dict, index=[0])
+
+    def from_tuple(self, t, source):
+        self.dtRetrieved  = t.dtRetrieved
+        self.lat = t.lat
+        self.lon = t.lon
+        self.radius  = t.radius
+        self.source  = t.source
+        self.rankby  = t.rankby
+        self.content = t.content
+
+        self.call  = source.value['call']
+        self.categories = source.value['categories']
+        return self
+
+    def __verify_location(self):
+        lat, lon = self.lat, self.lon
+
+        if lat is None and lon is None:
+            return False
+
+        elif (lat is not None and lon is not None) and \
+                (lat < -90 or lat > 90 or lon < -180 or lon > 180):
+            raise ValueError('lat, lon must be in a valid range')
+
+        else:
+            pass
+
+        self.lat = lat
+        self.lon = lon
+
+        return lat != 0 and lon != 0
+
+    def __repr__(self):
+        return f'<PlaceRequest(lat={self.lat}, lon={self.lon}, source={self.source})>'
+
+
+"""ensure the api cache is ready"""
+gcname = 'api_cache.sqlite'
+engine = create_engine(f'sqlite+pysqlite:///{dpath(gcname)}', module=sqlite)
+Base.metadata.create_all(engine)
+del gcname
+
+
+# Yelp -----------------------------------------------------------------
+class YelpRankBy(Enum):
+    BEST_MATCH = 'best_match'
+    RATING = 'rating'
+    REVIEW_COUNT = 'review_count'
+    DISTANCE = 'distance'
+
+
+with synapse_scope() as s:
+    YELP_TYPE_MAP = pd.read_csv(s.get('syn17011507').path).set_index('cat')
+
+
+def yelp_call(request):
+    url = 'https://api.yelp.com/v3/businesses/search'
+    params = {
+        'latitude': request.lat,
+        'longitude': request.lon,
+        'radius': request.radius,
+        'sort_by': request.rankby
+    }
+    complete = False
+
+    while not complete:
+        with requests.Session() as s:
+            s.headers.update({
+                'Authorization': f'Bearer {request.key}'
+            })
+
+            response = s.get(url, params=params)
+            result = response.json()
+            complete = True
+
+        if 'TOO_MANY_REQUESTS_PER_SECOND' in str(response.content):
+            time.sleep(np.random.exponential(3, 1)[0])
+            complete = False
+
+    request.content = json.dumps(result)
+    return request
+
+
+def parse_yelp_response(c):
+    if not isinstance(c, str):
+        raise TypeError('content must be a string')
+
+    empty = dict(
+            name='not found',
+            rank_order=-1,
+            categories='none',
+            major_categories='none'
+        )
+
+    if c is not None and c.lower() != 'nan':
+        results = None
+
+        try:
+            c = json.loads(c)
+        except json.JSONDecodeError as e:
+            return dict(
+                name=str(e),
+                rank_order=-1,
+                categories=c,
+                major_categories='JSONDecodeError'
+            )
+
+        businesses = c.get('businesses')
+        if businesses is not None:
+            for i, r in enumerate(businesses):
+                name = r.get('name')
+                minor = [ri.get('alias') for ri in r.get('categories')]
+                major = list(set([YELP_TYPE_MAP.loc[mi, 'mapping'] for mi in minor]))
+
+                if 'dining_out' in major:
+                    major = ['dining_out']
+
+                if len(major) > 1:
+                    major = [major[0]]
+
+                results = dict(
+                    name=name,
+                    rank_order=i,
+                    categories=', '.join(minor),
+                    major_categories=', '.join(major)
+                )
+                break
+        return results or empty
+    else:
+        return empty
+
+
+# GMAPS ----------------------------------------------------------------
 """Google Maps place types to ignore 
 https://developers.google.com/places/supported_types
 """
@@ -67,49 +374,339 @@ IGNORED_PLACE_TYPES = [
  """
 PLACE_QUERY_FIELDS = ['name', 'type', 'rating', 'price_level', 'geometry']
 
-"""ensure the user has an API key to Google Maps"""
-try:
-    PLACES_KEY = os.environ['GMAPS_PLACES_KEY']
-    print(f'Google Places API Key: {PLACES_KEY}')
-except KeyError:
-    print('WARNING: No API key found to access Google Maps.')
 
-"""How many times to retry a network timeout 
-and how many seconds to wait between each """
-CONNECTION_RESET_ATTEMPTS = 99
-CONNECTION_WAIT_TIME = 60
-
-"""named tuple used to clarify types used in the scripts below"""
-GPS = namedtuple('GPS', ['lat', 'lon', 'ts'])
-Cluster = namedtuple('Cluster', ['lat', 'lon', 'cid'])
+class GmapsRankBy(Enum):
+    PROMINENCE = 'prominence'
 
 
-def as_pydate(date):
-    ismil = True
+with synapse_scope() as s:
+    GMAP_TYPE_MAPPINGS = pd.read_csv(s.get('syn17011508').path).set_index('cat')
 
-    if any(s in date for s in ['a.m.', 'AM', 'a. m.']):
-        date = re.sub(r'(a.m.|a. m.|AM)', '', date).strip()
 
-    if any(s in date for s in ['p.m.', 'p. m.', 'PM']):
-        date = re.sub(r'(p.m.|p. m.|PM)', '', date).strip()
-        ismil = False
-
-    if '/' in date:
-        date = re.sub('/', '-', date)
-
+def gmapping(x):
+    t = None
     try:
-        date = dt.datetime.strptime(date, '%d-%m-%y %H:%M')
+        t = GMAP_TYPE_MAPPINGS.loc[x].mapping
+    except KeyError:
+        pass
 
-    except ValueError as e:
-        argstr = ''.join(e.args)
+    if isinstance(t, pd.Series):
+        t = t.tolist()[0]
 
-        if ':' in argstr:
-            date = dt.datetime.strptime(date, '%d-%m-%y %H:%M:%S')
+    if t is not None and 'Expecting value:' in t:
+        t = 'JSON Decode Error'
+
+    return {t} if t is not None else {'undefined category'}
+
+
+def gmap_call(request):
+    gmaps = googlemaps.Client(key=request.key)
+    nearby_request = gmaps.places_nearby(
+        location=(request.lat, request.lon),
+        radius=request.radius,
+        rank_by='prominence'
+    )
+
+    request.content = json.dumps(nearby_request)
+    return request
+
+
+def parse_gmap_response(c):
+    if c is not None:
+        ci_complete = False
+        results = None
+
+        try:
+            # remove dom hyperlinks
+            c = re.sub(r'</?a[^>]*?>', '', c)
+            c = json.loads(c)
+        except json.JSONDecodeError as e:
+            return dict(
+                rank_order=-1,
+                name=str(e),
+                categories=c,
+                major_categories='JSONDecodeError'
+            )
+
+        for i, r in enumerate(c.get('results')):
+            types = set(r.get('types'))
+
+            if any([t in IGNORED_PLACE_TYPES for t in types]) or ci_complete:
+                continue
+
+            else:
+                name = r.get('name')
+
+                # remove ambiguous types
+                types = types - {'point_of_interest', 'establishment', 'premise'}
+
+                # pull out the major categories
+                major = {
+                    'food', 'store', 'repair', 'finance',
+                    'restaurant', 'park', 'health', 'transit_station',
+                    'lodging', 'place_of_worship', 'doctor'
+                }
+                mc = types.intersection(major)
+                mc = mc if len(mc) > 0 else {'other'}
+                types = types - major
+
+                # manually set type by known names
+                if name in ['Sears', 'Macy\'s', 'mygofer', 'Target', 'T.J. Maxx']:
+                    types = {'department_store'}
+
+                elif name in ['Fred Meyer']:
+                    types = {'supermarket'}
+
+                # manually reduce
+                elif 'gas_station' in types:
+                    types = {'gas_station'}
+
+                elif 'lodging' in mc:
+                    types = {'lodging'}
+
+                elif 'transit_station' in mc:
+                    types = {'transit_station'}
+
+                elif mc == {'health', 'doctor'} or \
+                        mc == {'store', 'health', 'doctor'}:
+                    types = {'health'}
+
+                elif 'health' in mc and 'store' in mc:
+                    types = {'supermarket'}
+
+                elif mc == {'store', 'finance'}:
+                    types = {'finance'}
+
+                elif mc == {'store', 'general_contractor'}:
+                    types = {'repair'}
+
+                elif 'restaurant' in mc:
+                    mc = gmapping('restaurant')
+
+                elif mc == {'food', 'store'}:
+                    mc = gmapping('supermarket')
+
+                elif mc == {'food', 'store', 'general_contractor'}:
+                    types = {'consumer_goods'}
+
+                # take the left most
+                if len(types) == 0:
+                    types = mc
+                elif len(types) == 1:
+                    mc = gmapping(list(types)[0])
+                elif len(types) > 1:
+                    t = list(types)[0]
+                    types = {t}
+                    mc = gmapping(t)
+
+                if len(mc) > 1:
+                    mc = {list(mc)[0]}
+
+                if mc == {'store'}:
+                    mc = gmapping('store')
+
+                elif mc == {'food'}:
+                    mc = gmapping('food')
+
+                if mc == {'other'} and len(types) == 0:
+                    types = {'other'}
+
+                # or take the major if type doesn't remain
+                results = dict(
+                    rank_order=i,
+                    name=name,
+                    categories=', '.join(types),
+                    major_categories=', '.join(mc)
+                )
+
+                ci_complete = True
+
+        return results or dict(rank_order=-1, name='not found', categories='none', major_categories='none')
+
+
+# processing ------------------------------------------------------------
+def process_request(args):
+    request, force, progress_qu, request_qu, response_qu = args
+
+    if not request.valid:
+        return request.dataframe
+
+    my_pid = os.getpid()
+    request_qu.put(dict(pid=my_pid, type='get', args=(request,)))
+    r = response_qu.get()
+
+    if not force:
+        while r['pid'] != my_pid:
+            response_qu.put(r)
+            r = response_qu.get()
+
+        if r['response'] is not None:
+            if progress_qu is not None:
+                progress_qu.put(1)
+            else:
+                pass
+
+            return dict(report=r['response'].dict, hits=1, misses=0)
         else:
+            pass
+
+    # if we made it this far, we had a cache miss so make the request
+    a, call_complete = 0, False
+    while a < CONNECTION_RESET_ATTEMPTS and not call_complete:
+        try:
+            result = request.call(request)
+            call_complete = True
+        except ConnectionError:
+            a += 1
+            print(f'\n{a} connection attempts failed\n')
+            time.sleep(CONNECTION_WAIT_TIME)
+        except Exception as e:
             raise e
 
-    date = date + dt.timedelta(hours=12) if not ismil else date
-    return date
+    # cache our results
+    request_qu.put(dict(type='put', args=(result,)))
+
+    # if monitoring using the progress_bar in utils and a qu is supplied
+    if progress_qu is not None:
+        progress_qu.put(1)
+    else:
+        pass
+
+    return dict(report=result.dict, hits=0, misses=1)
+
+
+def request_nearby_places(request, n_jobs=1, force=False, progress_qu=None):
+    if not isinstance(request, list):
+        request = [request]
+
+    # first check our cache to see of we've made the same request
+    man = mul.Manager()
+    request_qu, response_qu = man.Queue(), man.Queue()
+    cman = mul.Process(
+        target=cache_manager, args=(request_qu, response_qu)
+    )
+    cman.start()
+
+    cpus = mul.cpu_count()
+    cpus = cpus if n_jobs == -1 or n_jobs >= cpus else n_jobs
+    pool = mul.Pool(cpus)
+
+    if len(request) == 1:
+        results = [
+            process_request((request[0], force, progress_qu, request_qu, response_qu))
+        ]
+        request_qu.put(dict(type='end'))
+    else:
+        results = list(pool.map(
+             process_request,
+             [(ri, force, progress_qu, request_qu, response_qu) for ri in request]
+        ))
+        request_qu.put(dict(type='end'))
+
+    pool.close(); pool.join(); del pool
+    cman.terminate(); cman.join(); del cman
+
+    hits = np.sum([r['hits'] for r in results])
+    misses = np.sum([r['misses'] for r in results])
+    results = pd.DataFrame(
+        [r['report'] for r in results],
+        index=np.arange(len(results))
+    )
+
+    for r, ir in zip(request, results.iterrows()):
+        idx, row = ir
+
+        t = r.parse_content(str(row.content))
+        results.loc[idx, 'name'] = t['name']
+        results.loc[idx, 'rank_order'] = t['rank_order']
+        results.loc[idx, 'categories'] = t['categories']
+        results.loc[idx, 'major_categories'] = t['major_categories']
+
+    results = results.drop(columns='content')
+
+    return dict(request=results, hits=hits, misses=misses)
+
+
+def cache_manager(request_qu, response_qu):
+    finished = False
+
+    while not finished:
+        with session_scope() as session:
+            try:
+                r = request_qu.get()
+            except EOFError:
+                finished = True
+                continue
+
+            if r['type'] == 'get':
+                request = r['args'][0]
+                content = get_from_cache(request, session)
+                response_qu.put(
+                    dict(
+                        pid=r['pid'],
+                        response=content)
+                )
+
+            elif r['type'] == 'put':
+                put_to_cache(r['args'][0], session)
+
+            elif r['type'] == 'end':
+                finished = True
+
+
+def get_from_cache(r, session):
+    a = session.query(PlaceRequest).filter(and_(
+        (PlaceRequest.lat == r.lat),
+        (PlaceRequest.lon == r.lon),
+        (PlaceRequest.radius == r.radius),
+        (PlaceRequest.source == r.source)
+    )).first()
+
+    return  a
+
+
+def put_to_cache(r, session):
+    a = session.query(PlaceRequest).filter(and_(
+        (PlaceRequest.lat == r.lat) &
+        (PlaceRequest.lon == r.lon) &
+        (PlaceRequest.source == r.source) &
+        (PlaceRequest.radius == r.radius)
+    )).all()
+
+    for ai in a:
+        ai.delete()
+
+    now = dt.datetime.now()
+    r.dtRetrieved = dt.datetime(
+        year=now.year, month=now.month, day=now.day, hour=now.hour, minute=now.minute
+    )
+    session.add(r)
+
+
+# source mappings ------------------------------------------------------
+def api_source(item):
+    if item == 'Google Places':
+        return ApiSource.GMAPS
+
+    elif item == 'Yelp':
+        return ApiSource.YELP
+
+    else:
+        raise KeyError(f'{item} is not a valid API source')
+
+
+class ApiSource(Enum):
+    YELP = dict(
+        name='Yelp',
+        call=yelp_call,
+        parse_content=parse_yelp_response
+    )
+    GMAPS = dict(
+        name='Google Places',
+        call=gmap_call,
+        parse_content=parse_gmap_response
+    )
+    FROM_NAME = api_source
 
 
 # --------------------------------------------------------------------------
@@ -121,11 +718,12 @@ def cluster_metrics(clusters, entries):
     else:
         pass
 
-    stats, dfs = [], []
-
+    stats = []
     grouped = entries.groupby('cid')
+
     for name, group in grouped:
         df = pd.DataFrame(group)
+        df = df.sort_values(by='midpoint')
 
         df['day'] = df.time_in.apply(
             lambda r: dt.date(year=r.year, month=r.month, day=r.day)
@@ -189,6 +787,12 @@ def cluster_metrics(clusters, entries):
         groups_by_ymonth = [pd.DataFrame(g) for n, g in groups_by_ymonth]
         ymonthly_counts  = [len(g) for g in groups_by_ymonth]
 
+        # mean time interval between visits - Mobile Phone Detection of Semantic Location and...
+        # rolling mean between entry midpoint pairs
+        df['ns'] = df.midpoint.apply(lambda x: x.timestamp())
+        mti = df.ns.rolling(window=2).apply(lambda x: x[1] - x[0], raw=True)
+        mti = np.round(np.mean(mti)/3600, 3)
+
         stats.append(
             dict(
                 cid=name,
@@ -198,46 +802,46 @@ def cluster_metrics(clusters, entries):
                 std_duration=np.round(df.duration.std().total_seconds()/3600, 3),
                 max_duration=np.round(df.duration.max().total_seconds()/3600, 3),
                 min_duration=np.round(df.duration.min().total_seconds()/3600, 3),
-                earliest_time_in=df.in_tod.min(),
-                latest_time_in=df.in_tod.max(),
-                earliest_time_out=df.out_tod.min(),
-                latest_time_out=df.out_tod.max(),
-                days_entered=int(len(daily_counts)),
-                count_before_9=int(np.sum([
-                    1 for r in df.in_tod if r < dt.time(hour=9)
-                ])),
-                count_between_9_12=int(np.sum([
-                    1 for r in df.in_tod
-                    if dt.time(hour=9) <= r < dt.time(hour=12)
-                ])),
-                count_between_12_5=int(np.sum([
-                    1 for r in df.in_tod
-                    if dt.time(hour=5) <= r < dt.time(hour=17)
-                ])),
-                count_after_5=int(np.sum([
-                    1 for r in df.in_tod if dt.time(hour=17) <= r
-                ])),
-                max_entries_per_day=int(np.max(daily_counts)),
-                min_entries_per_day=int(np.min(daily_counts)),
-                mean_entries_per_day=np.round(np.mean(daily_counts), 3),
-                std_entries_per_day=np.round(np.std(daily_counts), 3),
-                max_entries_per_week=int(np.max(weekly_counts)),
-                min_entries_per_week=int(np.min(weekly_counts)),
-                mean_entries_per_week=np.round(np.mean(weekly_counts), 3),
-                std_entries_per_week=np.round(np.std(weekly_counts), 3),
-                max_entries_per_month=int(np.max(ymonthly_counts)),
-                min_entries_per_month=int(np.min(ymonthly_counts)),
-                mean_entries_per_month=np.round(np.mean(ymonthly_counts), 3),
-                std_entries_per_month=np.round(np.std(ymonthly_counts), 3),
-                most_common_hod_in=int(counts_by_itod[0][0]),
-                most_common_hod_out=int(counts_by_otod[0][0]),
-                most_common_dow=int(counts_by_dow[0][0]),
-                most_common_dow_cnt=int(counts_by_dow[0][1]),
-                most_common_month=int(counts_by_month[0][0]),
-                most_common_month_cnt=int(counts_by_month[0][1]),
+                # earliest_time_in=df.in_tod.min(),
+                # latest_time_in=df.in_tod.max(),
+                # earliest_time_out=df.out_tod.min(),
+                # latest_time_out=df.out_tod.max(),
+                # days_entered=int(len(daily_counts)),
+                # count_before_9=int(np.sum([
+                #     1 for r in df.in_tod if r < dt.time(hour=9)
+                # ])),
+                # count_between_9_12=int(np.sum([
+                #     1 for r in df.in_tod
+                #     if dt.time(hour=9) <= r < dt.time(hour=12)
+                # ])),
+                # count_between_12_5=int(np.sum([
+                #     1 for r in df.in_tod
+                #     if dt.time(hour=5) <= r < dt.time(hour=17)
+                # ])),
+                # count_after_5=int(np.sum([
+                #     1 for r in df.in_tod if dt.time(hour=17) <= r
+                # ])),
+                # max_entries_per_day=int(np.max(daily_counts)),
+                # min_entries_per_day=int(np.min(daily_counts)),
+                # mean_entries_per_day=np.round(np.mean(daily_counts), 3),
+                # std_entries_per_day=np.round(np.std(daily_counts), 3),
+                # max_entries_per_week=int(np.max(weekly_counts)),
+                # min_entries_per_week=int(np.min(weekly_counts)),
+                # mean_entries_per_week=np.round(np.mean(weekly_counts), 3),
+                # std_entries_per_week=np.round(np.std(weekly_counts), 3),
+                # max_entries_per_month=int(np.max(ymonthly_counts)),
+                # min_entries_per_month=int(np.min(ymonthly_counts)),
+                # mean_entries_per_month=np.round(np.mean(ymonthly_counts), 3),
+                # std_entries_per_month=np.round(np.std(ymonthly_counts), 3),
+                # most_common_hod_in=int(counts_by_itod[0][0]),
+                # most_common_hod_out=int(counts_by_otod[0][0]),
+                # most_common_dow=int(counts_by_dow[0][0]),
+                # most_common_dow_cnt=int(counts_by_dow[0][1]),
+                # most_common_month=int(counts_by_month[0][0]),
+                # most_common_month_cnt=int(counts_by_month[0][1]),
+                mean_ti_between_visits=mti,
             )
         )
-
 
     if len(stats) > 0:
         stats = pd.DataFrame().from_dict(stats)
@@ -366,7 +970,8 @@ def estimate_home_location(records, parameters=None):
     """
     gpr = [
         (i, GPS(g.lat, g.lon, g.ts)) for i, g in enumerate(records.itertuples())
-        if (17 < g.ts.hour or g.ts.hour < 9)
+        if (0 < g.ts.hour or g.ts.hour < 6) # change made by recomendation of paper.
+        # TODO: FIND THE SOURCE
     ]
 
     args = gps_dbscan([t[1] for t in gpr], parameters=parameters)
@@ -504,10 +1109,6 @@ def geo_distance(lat1, lon1, lat2, lon2):
     c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
 
     return r*c*1000
-
-
-def __geo_distance_wrapper(args):
-    return geo_distance(*args)
 
 
 def geo_pairwise_distances(x, n_jobs=1):
@@ -751,10 +1352,19 @@ def get_cluster_times(records, clusters):
 
         return 'err'
 
+    def ccat(cid):
+        c = clusters.loc[clusters.cid == cid, 'categories'].values
+
+        if len(c) > 0:
+            return c[0]
+
+        return 'err'
+
     if 'cid' not in entries.columns:
         return None
     else:
         entries['cname'] = entries.cid.apply(cname)
+        entries['category'] = entries.cid.apply(ccat)
 
     return entries
 
@@ -781,10 +1391,11 @@ def gps_dbscan(gps_records, parameters=None):
     dbscan = DBSCAN(
         eps=eps, min_samples=min_samples, metric=metric, n_jobs=n_jobs
     ).fit([(g.lat, g.lon) for g in gps_records])
+    assert len(gps_records) == len(dbscan.labels_)
 
     clusters = extract_cluster_centers(gps_records, dbscan)
+    assert len(set(pd.unique(dbscan.labels_)) - {-1}) == len(clusters)
 
-    assert len(dbscan.labels_) == len(clusters)
     return dbscan.labels_, clusters
 
 
@@ -936,141 +1547,10 @@ def resample_gps_intervals(records):
     return resampled
 
 
-# --------------------------------------------------------------------------
-# Google Places requests
-# --------------------------------------------------------------------------
-def request_nearby_places(lat, lon, radius=50):
-    """retrieve an ordered list of nearby by places
-
-    Notes:
-        results are returned in Google prominence order
-
-    Args:
-        lat: (float) latitude in decimal-degree (DD) format
-        lon: (float) longitude in DD format
-        radius: (float) radius in meters for which to retrieve places
-
-    Raises:
-        ValueError: if -90 > lat > 90 OR -180 > lon > 180
-        EnvironmentError: if no Google Maps API Key is found
-
-    Returns:
-        [brightenv2.context.Place]
-    """
-    __verify_key()
-
-    if lat < -90 or lat > 90 or lon < -180 or lon > 180:
-        raise ValueError('lat, lon must be in a valid range')
-
-    # get the cache
-    cache_fn = 'gmaps_nearby_cache.csv'
-    cache_fn = os.path.join(Path.home(), '.brighten', cache_fn)
-    try:
-        cache = pd.read_csv(cache_fn)
-    except FileNotFoundError:
-        cache = pd.DataFrame(columns=['lat', 'lon', 'content'])
-
-    lat = np.round(lat, 5)
-    lon = np.round(lon, 5)
-
-    # first check our cache to see of we've made the same request
-    nearby = cache.loc[
-        (np.isclose(cache.lat, lat)) & (np.isclose(cache.lon, lon))
-    ] if len(cache) > 0 else []
-
-    if len(nearby) > 0:
-        return dict(
-            content=ast.literal_eval(nearby.content.values[0]),
-            cache='hit'
-        )
-
-    else:
-        # get nearby places from Google
-        gmaps = googlemaps.Client(key=PLACES_KEY)
-        nearby_request = gmaps.places_nearby(
-            location=(lat, lon),
-            radius=radius,
-            rank_by='prominence'
-        )
-
-        result = dict(lat=lat, lon=lon, content=str(nearby_request))
-
-        # make sure the cache has the results
-        cache.loc[-1] = result
-        cache.to_csv(cache_fn, index=None)
-
-        return dict(content=nearby_request, cache='miss')
+def __geo_distance_wrapper(args):
+    return geo_distance(*args)
 
 
-def request_place_details(place_id):
-    return
-    """make a detailed place request through Google Maps
-
-    Args:
-        place_id: (str) representing the Google place_id
-
-    Raises:
-        EnvironmentError: if no Google Maps API Key is found
-
-    Returns:
-        brightenv2.context.Place or None
-    """
-    __verify_key()
-
-    client = googlemaps.Client(key=PLACES_KEY)
-
-    # make the API call
-    try:
-        place_request = client.place(place_id, fields=PLACE_QUERY_FIELDS)
-    except ApiError as e:
-        print(f'The request failed with response: '
-              f'{", ".join([str(a) for a in e.args if a is not None])}')
-        return None
-
-    # parse the place details into brightenv2.context.Place
-    place = None
-    if place_request.get('status') == 'OK':
-        result = place_request.get('result')
-        location = result.get('geometry').get('location')
-
-        categories = result.get('types')
-        name = result.get('name')
-        lat = location.get('lat')
-        lon = location.get('lng')
-        rating = result.get('rating')
-
-        if not STANDALONE:
-            categories = [
-                ctx.Category(name=name) for name in result.get('types')
-            ]
-
-            place = ctx.Place(
-                place_id=place_id,
-                name=name,
-                lat=lat,
-                lon=lon,
-                rating=rating,
-                categories=categories,
-                last_sync=dt.datetime.now()
-            )
-        else:
-            place = dict(
-                place_id=place_id,
-                name=name,
-                lat=lat,
-                lo=lon,
-                rating=rating,
-                categories=categories
-            )
-    else:
-        pass
-
-    return place
-
-
-# --------------------------------------------------------------------------
-# Private Methods
-# --------------------------------------------------------------------------
 def __top_cluster(args):
     if args is not None and len(args) > 0:
         try:
@@ -1092,7 +1572,6 @@ def __validate_scikit_params(parameters):
 
     Args:
         parameters: (dict)
-
     Returns:
         eps, min_samples, metric, n_jobs
     """
@@ -1113,16 +1592,6 @@ def __validate_scikit_params(parameters):
     n_jobs = -1 if n_jobs is None else n_jobs
 
     return eps, min_samples, metric, n_jobs
-
-
-def __verify_key():
-    if PLACES_KEY is None:
-        raise EnvironmentError(
-            'Environment variable: GMAPS_PLACES_KEY not found. Cannot '
-            'complete request.'
-        )
-    else:
-        pass
 
 
 if __name__ == '__main__':
