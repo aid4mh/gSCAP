@@ -48,7 +48,6 @@ CONNECTION_WAIT_TIME = 60
 GPS = namedtuple('GPS', ['lat', 'lon', 'ts'])
 Cluster = namedtuple('Cluster', ['lat', 'lon', 'cid'])
 
-
 @contextmanager
 def synapse_scope():
     syn = synapseclient.Synapse()
@@ -118,7 +117,7 @@ def isnum(x):
     try:
         float(x)
         return True
-    except TypeError:
+    except ValueError:
         return False
 
 
@@ -260,7 +259,6 @@ class YelpRankBy(Enum):
     RATING = 'rating'
     REVIEW_COUNT = 'review_count'
     DISTANCE = 'distance'
-
 
 with synapse_scope() as s:
     YELP_TYPE_MAP = pd.read_csv(s.get('syn17011507').path).set_index('cat')
@@ -404,7 +402,7 @@ def gmap_call(request):
     nearby_request = gmaps.places_nearby(
         location=(request.lat, request.lon),
         radius=request.radius,
-        rank_by='prominence'
+        rank_by=request.rankby
     )
 
     request.content = json.dumps(nearby_request)
@@ -603,8 +601,9 @@ def request_nearby_places(request, n_jobs=1, force=False, progress_qu=None):
         ))
         request_qu.put(dict(type='end'))
 
-    pool.close(); pool.join(); del pool
+    pool.terminate(); pool.join(); del pool
     cman.terminate(); cman.join(); del cman
+    man.shutdown(); del man
 
     hits = np.sum([r['hits'] for r in results])
     misses = np.sum([r['misses'] for r in results])
@@ -853,9 +852,11 @@ def cluster_metrics(clusters, entries):
         return None
 
 
-def process_velocities(gps_records):
+def process_velocities(records):
     cols = ['lat', 'lon', 'ts']
-    records = pd.DataFrame(gps_records, columns=cols)
+
+    if isinstance(records, list):
+        records = pd.DataFrame(records, columns=cols)
 
     # generate a 'nan' row for the first coordinate
     nanrow = [dict(
@@ -1111,7 +1112,7 @@ def geo_distance(lat1, lon1, lat2, lon2):
     return r*c*1000
 
 
-def geo_pairwise_distances(x, n_jobs=1):
+def geo_pairwise_distances(x, as_array=True, n_jobs=1):
     """
 
     Args:
@@ -1121,24 +1122,30 @@ def geo_pairwise_distances(x, n_jobs=1):
     Returns:
         [float,]
     """
-    x = pd.DataFrame(x)
-    x['key'] = 0
-    x = pd.merge(x, x, on='key', how='outer').drop(columns='key')
-
-    x = [(xi[1], xi[2], xi[3], xi[4]) for xi in x.itertuples()]
+    idx_pairs = [(i, j) for i in range(len(x)) for j in range(i+1, len(x))]
+    pairs = [(x[p[0]], x[p[1]]) for p in idx_pairs]
 
     cpus = mul.cpu_count()
     cpus = cpus if n_jobs <= 0 or n_jobs >= cpus else n_jobs
     pool = mul.Pool(cpus)
 
-    result = sorted(list(pool.map(__geo_distance_wrapper, x)))
+    result = list(pool.map(__geo_distance_wrapper, pairs))
+    result = np.round(result, 1)
+
+    x=pd.DataFrame(
+        [
+            (p[0][0], p[0][1], p[1][0], p[1][1], d)
+            for p, d in zip(pairs, result)
+        ],
+        columns=['lat1', 'lon1', 'lat2', 'lon2', 'distance']
+    )
 
     pool.close()
     pool.join()
-    return np.array(result)
+    return np.array(sorted(result)) if as_array else x
 
 
-def get_clusters_with_context(records, parameters=None):
+def get_clusters_with_context(records, parameters=None, validation_metrics=False):
     records['cid'] = 'xNot'
     stationary = records.loc[records.binning == 'stationary']
     others = records.loc[records.binning != 'stationary']
@@ -1186,6 +1193,11 @@ def get_clusters_with_context(records, parameters=None):
 
     clusters['name'] = 'nap'
     clusters['categories'] = 'nap'
+    clusters.loc[clusters.cid == 'home', 'name'] = 'home'
+    clusters.loc[clusters.cid == 'home', 'categories'] = 'home'
+    clusters.loc[clusters.cid == 'work', 'name'] = 'work'
+    clusters.loc[clusters.cid == 'work', 'categories'] = 'work'
+
     records['distance_from_home'] = [
         np.round(geo_distance(
             home.get('lat'),
@@ -1194,6 +1206,13 @@ def get_clusters_with_context(records, parameters=None):
         if home is not None else np.nan
         for r in records.itertuples()
     ]
+
+    if not validation_metrics:
+        clusters = clusters.drop(columns=[
+            'lat_IQR', 'lat_max', 'lat_min', 'lat_range', 'lat_std',
+            'lon_IQR', 'lon_max', 'lon_min', 'lon_range', 'lon_std',
+            'max_distance_from_center'
+        ])
 
     assert len(records.loc[records.cid == '', :]) == 0
     return records, clusters
@@ -1369,6 +1388,179 @@ def get_cluster_times(records, clusters):
     return entries
 
 
+def get_daily_metrics(records, entries):
+    t = []
+    records['day'] = records.ts.apply(lambda x: x.date())
+    days = pd.unique(records.day)
+
+    ln_sleep = None
+    for day in days:
+        # get the days records
+        de = entries.loc[entries.date == day]
+        r = records.loc[records.day == day]
+
+        # quantify hours of sleep using only if last night's ending cluster was the same
+        # as the morning and was in fact the day prior
+        sleep = pd.to_datetime(r.loc[r.ts == np.min(r.ts)].ts.values)
+        sleep = sleep[0] if len(sleep) > 0 else None
+
+        c2 = r.loc[r.ts == np.min(r.ts)].cid.values
+        c2 = c2[0] if len(c2) > 0 else None
+
+        if sleep is not None and c2 is not None:
+            sleep = dt.datetime(
+                year=sleep.year, month=sleep.month, day=sleep.day, hour=sleep.hour, minute=sleep.minute
+            ) - dt.datetime(year=sleep.year, month=sleep.month, day=sleep.day, hour=0, minute=0)
+
+            if ln_sleep is not None and (sleep + ln_sleep[0]).total_seconds() / 3600 < 24 and c2 == c1:
+                sleep = (ln_sleep[0] + sleep).total_seconds() / 3600
+            else:
+                sleep = np.nan
+        else:
+            sleep = np.nan
+
+        # calculate the time spent in the subject's overall top 3 clusters
+        top_3 = list(records.loc[
+                         (records.cid != 'home') &
+                         (records.cid != 'work') & (records.cid != 'xNot'),
+                         ['cid', 'time_delta']
+                     ].groupby('cid').sum().reset_index().sort_values('time_delta', ascending=False).iloc[
+                     :3].cid.values)
+
+        todays_clusters = pd.unique(de.cid)
+        ct = [
+            de.loc[de.cid == ci].duration.sum().total_seconds()
+            for ci in todays_clusters if ci in top_3]
+        top_3 = np.sum(ct)
+
+        # calculate the time spent in the home and work clusters
+        home = de.loc[de.cid == 'home'].duration.sum().total_seconds() / 3600
+        work = de.loc[de.cid == 'work'].duration.sum().total_seconds() / 3600
+
+        # calculate how many hours in the day had GPS data
+        hod = len(pd.unique(r.ts.apply(lambda r: r.hour)))
+
+        # stationary hours outside home/work clusters
+        non_hw_stationary = np.round(
+            r.loc[
+                (r.cid != 'home') & (r.cid != 'work') & (r.binning == 'stationary')
+         ].time_delta.sum() / 3600, 3)
+
+        # location variance - https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5571235/
+        lv = np.log(np.std(r.lat) + np.std(r.lon))
+
+        dm = dict(
+            date=day,
+            location_variance=lv,
+            hours_accounted_for=hod,
+            hours_without_data=24 - hod,
+            hours_stationary=np.round(r.loc[r.binning == 'stationary'].time_delta.sum() / 3600, 3),
+            hours_stationary_non_home_work=non_hw_stationary,
+            hours_walking=np.round(r.loc[r.binning == 'walking'].time_delta.sum() / 3600, 3),
+            distance_walking=np.round(r.loc[r.binning == 'walking'].displacement.sum()),
+            hours_brunch=np.round(r.loc[r.binning == 'brunch'].time_delta.sum() / 3600, 3),
+            distance_brunch=np.round(r.loc[r.binning == 'brunch'].displacement.sum()),
+            hours_powered_vehicle=np.round(r.loc[r.binning == 'powered_vehicle'].time_delta.sum() / 3600, 3),
+            distance_powered_vehicle=np.round(r.loc[r.binning == 'powered_vehicle'].displacement.sum(), 3),
+            hours_high_speed_transportation=np.round(
+                r.loc[r.binning == 'high_speed_transportation'].time_delta.sum() / 3600, 3),
+            distance_high_speed_transportation=np.round(
+                r.loc[r.binning == 'high_speed_transportation'].displacement.sum(), 3),
+            hours_of_sleep=np.round(sleep, 3) if sleep is not np.nan else np.nan,
+            hours_at_home=np.round(home, 3),
+            hours_at_work=np.round(work, 3),
+            came_to_work=any(de.cid == 'work'),
+            number_of_clusters=len(todays_clusters),
+            hours_spent_in_top_3_clusters=np.round(top_3 / 3600, 3),
+            max_distance_from_home=np.round(np.max(r.distance_from_home), 3),
+        )
+
+        t.append(dm)
+
+        # create some metrics for the next pass to calculate sleep patterns
+        t1 = r.loc[r.ts == np.max(r.ts)].ts
+        t1 = t1.iloc[0] if len(t1) > 0 else None
+
+        c1 = r.loc[r.ts == np.max(r.ts)].cid.values
+        c1 = c1[0] if len(c1) > 0 else None
+
+        if t1 is not None and c1 is not None:
+            t1 = dt.datetime(year=t1.year, month=t1.month, day=t1.day, hour=t1.hour, minute=t1.minute)
+            ln_sleep = ((dt.datetime(year=t1.year, month=t1.month, day=t1.day, hour=23, minute=59) - t1),
+                        t1, c1)
+        else:
+            ln_sleep = None
+
+    return pd.DataFrame(t)
+
+
+def get_next_phase_clusters(records, clusters, params, min_distance=100, validation_metrics=False):
+    def getint(ri):
+        return int(ri[1:]) if isnum(ri[1:]) else None
+
+    # add an exclusion mask to identify which points to perform the clustering
+    records['exmask'] = ~((records.cid != 'xNot') | (records.binning != 'stationary'))
+    records['day'] = records.ts.apply(lambda x: x.date())
+
+    next_cid = [rj for rj in [getint(ri) for ri in records.cid] if rj is not None]
+    next_cid = np.max(next_cid) + 1 if len(next_cid) > 0 else 0
+
+    cur_cluster_set = clusters.loc[:, ['lat', 'lon']]
+
+    cs = []
+    for day in pd.unique(records.day):
+        records['dmask'] = records.day == day
+
+        # only include points more than x meters away from an existing cluster
+        for idx, row in records.loc[records.exmask & records.dmask].iterrows():
+            if any([
+                geo_distance(row.lat, row.lon, c.lat, c.lon) < min_distance
+                for c in cur_cluster_set.itertuples()
+            ]):
+                records.loc[idx, 'dmask'] ^= True
+
+        assert all(
+            [cid == 'xNot' for cid in records.loc[records.exmask & records.dmask].cid]
+        )
+
+        # build record set and push through dbscan
+        gpsr = [
+            GPS(lat=g.lat, lon=g.lon, ts=g.ts)
+            for g in records.loc[records.exmask & records.dmask].itertuples()
+        ]
+        labels, dcs = gps_dbscan(gpsr, params)
+
+        # reset the cids to start where phase 1 left off
+        if len(dcs) > 0:
+            cids = [f'x{next_cid+l}' if l != -1 else 'xNot' for l in labels]
+            assert len(cids) == len(records.loc[records.exmask & records.dmask]['cid'])
+
+            records.loc[records.exmask & records.dmask, 'cid'] = cids
+
+            # convert to dataframe and reset cluster id's to begin where phase 1 left off
+            dcs = pd.DataFrame(dcs)
+            dcs.cid = [f'x{cid+next_cid}' for cid in dcs.cid]
+            cs.append(dcs)
+
+            next_cid += len(dcs)
+
+    if len(cs) > 0:
+        cs = pd.concat(cs, sort=True)
+        cs['categories'] = cs['name'] = 'nap'
+
+        clusters = pd.concat([clusters, cs], sort=False)
+
+        if not validation_metrics:
+            clusters = clusters.drop(columns=[
+                'lat_IQR', 'lat_max', 'lat_min', 'lat_range', 'lat_std',
+                'lon_IQR', 'lon_max', 'lon_min', 'lon_range', 'lon_std',
+                'max_distance_from_center'
+            ])
+
+    records = records.drop(columns=['exmask', 'day'])
+    return records, clusters
+
+
 def gps_dbscan(gps_records, parameters=None):
     """perform DBSCAN and return cluster with most number of components
     http://scikit-learn.org/stable/modules/generated/sklearn.cluster.DBSCAN.html
@@ -1513,7 +1705,8 @@ def impute_stationary_coordinates(records, freq='10Min', metrics=True):
 
     if not metrics:
         records.drop(
-            columns=['binning', 'displacement', 'time_delta', 'velocity']
+            columns=['binning', 'displacement', 'time_delta', 'velocity'],
+            inplace=True
         )
     else:
         pass
@@ -1548,7 +1741,8 @@ def resample_gps_intervals(records):
 
 
 def __geo_distance_wrapper(args):
-    return geo_distance(*args)
+    a, b = args
+    return geo_distance(*a, *b)
 
 
 def __top_cluster(args):
