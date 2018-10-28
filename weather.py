@@ -359,10 +359,9 @@ def weather_report(
 
         results = dict(report=report, hits=hits, misses=misses)
 
-    pool.close()
-    pool.join()
-    cman.terminate()
-    cman.join()
+    pool.terminate(); pool.join(); del pool
+    cman.terminate(); cman.join(); del cman
+    man.shutdown(); del man
 
     return results[0] if len(results) == 1 else results
 
