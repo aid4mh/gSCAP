@@ -48,7 +48,6 @@ CONNECTION_WAIT_TIME = 60
 GPS = namedtuple('GPS', ['lat', 'lon', 'ts'])
 Cluster = namedtuple('Cluster', ['lat', 'lon', 'cid'])
 
-
 @contextmanager
 def synapse_scope():
     syn = synapseclient.Synapse()
@@ -260,7 +259,6 @@ class YelpRankBy(Enum):
     RATING = 'rating'
     REVIEW_COUNT = 'review_count'
     DISTANCE = 'distance'
-
 
 with synapse_scope() as s:
     YELP_TYPE_MAP = pd.read_csv(s.get('syn17011507').path).set_index('cat')
