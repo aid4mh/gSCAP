@@ -15,6 +15,7 @@ import re
 import requests
 from sqlite3 import dbapi2 as sqlite
 import time
+from urllib3.exceptions import ConnectionError
 
 import googlemaps
 import numpy as np
@@ -27,7 +28,6 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
 import synapseclient
-from urllib3.exceptions import ConnectionError
 
 __author__ = 'Luke Waninger'
 __copyright__ = 'Copyright 2018, University of Washington'
@@ -47,6 +47,7 @@ CONNECTION_WAIT_TIME = 60
 """named tuple used to clarify types used in the scripts below"""
 GPS = namedtuple('GPS', ['lat', 'lon', 'ts'])
 Cluster = namedtuple('Cluster', ['lat', 'lon', 'cid'])
+
 
 @contextmanager
 def synapse_scope():
@@ -906,7 +907,7 @@ def discrete_velocity(coordinate_a, coordinate_b):
         ValueError if supplied tuples are incorrect
 
     Notes:
-        available bins: { 'stationary', 'walking', 'brunch', 'powered_vehicle', 'high_speed_transportation', 'anomaly' }
+        available bins: { 'stationary', 'walking', 'active', 'powered_vehicle', 'high_speed_transportation', 'anomaly' }
     """
     if not (isinstance(coordinate_a[-1], dt.datetime) and isinstance(coordinate_b[-1], dt.datetime)):
         raise TypeError('the third argument of each tuple must be a datetime')
@@ -937,7 +938,7 @@ def discrete_velocity(coordinate_a, coordinate_b):
     # vehicle. I'm having difficulty finding a
     # good data set for this. 20 mph ~ 8.9 m/s
     elif velocity < 6.9:
-        binning = 'brunch'
+        binning = 'active'
 
     # 67.056 m/s ~ 150 mph ~ 241.4016 kmh
     elif velocity < 67.056:
