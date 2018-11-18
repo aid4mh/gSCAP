@@ -8,12 +8,13 @@ import datetime as dt
 import multiprocessing as mul
 import os
 from pathlib import Path
+import requests
 from sqlite3 import dbapi2 as sqlite
 import time
+from urllib3.exceptions import NewConnectionError
 
 import numpy as np
 import pandas as pd
-import requests
 from sqlalchemy import and_
 from sqlalchemy import create_engine
 from sqlalchemy import Column, String, Float, DateTime
@@ -22,7 +23,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
 import synapseclient
-from urllib3.exceptions import NewConnectionError
 
 
 __author__ = 'Luke Waninger'

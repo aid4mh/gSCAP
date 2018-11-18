@@ -2,7 +2,6 @@
 
 """ A collection of scripts for processing GPS streams"""
 
-import ast
 from collections import *
 from contextlib import contextmanager
 import datetime as dt
@@ -67,6 +66,18 @@ dpath = lambda x: os.path.join(Path.home(), '.gscap', x)
 
 if not os.path.exists(dpath('')):
     os.mkdir(dpath(''))
+
+"""check for config file"""
+config_file = os.path.join(Path.home(), '.gscapConfig')
+if not os.path.exists(config_file):
+    print('configuration file not found')
+else:
+    with open(config_file, 'r') as f:
+        cf = f.readlines()
+
+    # read each line of the file into a dictionary as a key value pair separated with an '='
+    #  ignore lines beginning with '#'
+    CONFIG = {k: v for k, v in [list(map(lambda x: x.strip(), l.split('='))) for l in cf if l[0] != '#']}
 
 """only open this zips once, download if unavailable"""
 zname = 'zips.csv'
@@ -180,12 +191,11 @@ class PlaceRequest(Base):
     dtRetrieved = Column(DateTime)
     content = Column(String)
 
-    def __init__(self, lat=None, lon=None, radius=None, rankby=None, source=None, key=None):
+    def __init__(self, lat=None, lon=None, radius=None, rankby=None, source=None):
         self.lat = np.round(lat, 5) if isnum(lat) else np.nan
         self.lon = np.round(lon, 5) if isnum(lon) else np.nan
         self.valid = self.__verify_location()
 
-        self.key = key
         self.radius = radius
         self.rankby = rankby.value
 
@@ -261,12 +271,19 @@ class YelpRankBy(Enum):
     REVIEW_COUNT = 'review_count'
     DISTANCE = 'distance'
 
+
 with synapse_scope() as s:
     YELP_TYPE_MAP = pd.read_csv(s.get('syn17011507').path).set_index('cat')
 
 
 def yelp_call(request):
     url = 'https://api.yelp.com/v3/businesses/search'
+
+    try:
+        key = CONFIG['YelpAPI']
+    except KeyError:
+        print('a key for YelpAPI was not found in .gscapConfig file')
+
     params = {
         'latitude': request.lat,
         'longitude': request.lon,
@@ -278,15 +295,19 @@ def yelp_call(request):
     while not complete:
         with requests.Session() as s:
             s.headers.update({
-                'Authorization': f'Bearer {request.key}'
+                'Authorization': f'Bearer {key}'
             })
 
             response = s.get(url, params=params)
-            result = response.json()
-            complete = True
+
+            if response.ok:
+                result = response.json()
+                complete = True
+            else:
+                time.sleep(np.random.uniform(.01, 5, 1)[0])
 
         if 'TOO_MANY_REQUESTS_PER_SECOND' in str(response.content):
-            time.sleep(np.random.exponential(3, 1)[0])
+            time.sleep(np.random.uniform(.01, 5, 1)[0])
             complete = False
 
     request.content = json.dumps(result)
@@ -399,7 +420,12 @@ def gmapping(x):
 
 
 def gmap_call(request):
-    gmaps = googlemaps.Client(key=request.key)
+    try:
+        key = CONFIG['GooglePlacesAPI']
+    except KeyError:
+        print('a key for GooglePlacesAPI was not found in .gscapConfig file')
+
+    gmaps = googlemaps.Client(key=key)
     nearby_request = gmaps.places_nearby(
         location=(request.lat, request.lon),
         radius=request.radius,
@@ -864,7 +890,7 @@ def process_velocities(records):
         displacement=np.nan,
         time_delta=np.nan,
         velocity=np.nan,
-        binning='stationary')
+        binning='null')
     ]
 
     # rolling window calculating between rows i and i-1
@@ -912,13 +938,12 @@ def discrete_velocity(coordinate_a, coordinate_b):
     if not (isinstance(coordinate_a[-1], dt.datetime) and isinstance(coordinate_b[-1], dt.datetime)):
         raise TypeError('the third argument of each tuple must be a datetime')
 
-    meters = geo_distance(*coordinate_a[:2], *coordinate_b[:2])
-
     if coordinate_b[-1] > coordinate_a[-1]:
-        seconds = (coordinate_b[-1] - coordinate_a[-1]).seconds
+        seconds = (coordinate_b[-1] - coordinate_a[-1]).total_seconds()
     else:
-        seconds = (coordinate_a[-1] - coordinate_b[-1]).seconds
+        seconds = (coordinate_a[-1] - coordinate_b[-1]).total_seconds()
 
+    meters = geo_distance(*coordinate_a[:2], *coordinate_b[:2])
     velocity = meters/seconds if seconds != 0 else np.nan
 
     # stationary - if the velocity is less than what you'd expect
@@ -940,7 +965,6 @@ def discrete_velocity(coordinate_a, coordinate_b):
     elif velocity < 6.9:
         binning = 'active'
 
-    # 67.056 m/s ~ 150 mph ~ 241.4016 kmh
     elif velocity < 67.056:
         binning = 'powered_vehicle'
 
@@ -972,8 +996,7 @@ def estimate_home_location(records, parameters=None):
     """
     gpr = [
         (i, GPS(g.lat, g.lon, g.ts)) for i, g in enumerate(records.itertuples())
-        if (0 < g.ts.hour or g.ts.hour < 6) # change made by recomendation of paper.
-        # TODO: FIND THE SOURCE
+        if 0 < g.ts.hour < 6
     ]
 
     args = gps_dbscan([t[1] for t in gpr], parameters=parameters)
@@ -1001,10 +1024,9 @@ def estimate_work_location(records, parameters=None):
         Cluster, [int]
     """
     gpr = [
-        (i, GPS(g.lat, g.lon, g.ts)) for i, g in
-        enumerate(records.itertuples())
-        if not (17 <= g.ts.hour or g.ts.hour < 9)
-           and g.ts.weekday() < 5
+        (i, GPS(g.lat, g.lon, g.ts))
+        for i, g in enumerate(records.itertuples())
+        if 9 <= g.ts.hour < 11 or 13 <= g.ts.hour < 15 and g.ts.weekday() < 5
     ]
 
     args = gps_dbscan([t[1] for t in gpr], parameters=parameters)
@@ -1160,9 +1182,13 @@ def get_clusters_with_context(records, parameters=None, validation_metrics=False
     home_records.cid = 'home'
 
     # find the work records
-    work, wmask = estimate_work_location(stationary, parameters)
-    work_records = stationary.iloc[wmask, :].copy()
-    work_records.cid = 'work'
+    if 'working' not in records.columns or len(records.loc[records.working == True]) > 0:
+        work, wmask = estimate_work_location(stationary, parameters)
+        work_records = stationary.iloc[wmask, :].copy()
+        work_records.cid = 'work'
+    else:
+        work = work_records = None
+        wmask = []
 
     # scan the remaining records
     rmask = list(set(np.arange(stationary.shape[0])) - set(hmask+wmask))
@@ -1213,36 +1239,37 @@ def get_clusters_with_context(records, parameters=None, validation_metrics=False
             'lat_IQR', 'lat_max', 'lat_min', 'lat_range', 'lat_std',
             'lon_IQR', 'lon_max', 'lon_min', 'lon_range', 'lon_std',
             'max_distance_from_center'
-        ])
+        ], axis=1, errors='ignore')
 
     assert len(records.loc[records.cid == '', :]) == 0
     return records, clusters
 
 
 def get_cluster_times(records, clusters):
-    added_yday = False
+    records['yday'] = records.ts.apply(
+        lambda t: f'{t.year}{t.timetuple().tm_yday}'
+    )
 
-    if 'yday' not in records.columns:
-        records['yday'] = records.ts.apply(
-            lambda t: f'{t.year}{t.timetuple().tm_yday}'
-        )
-        added_yday = True
-    else:
-        pass
-
-    grouped = records.groupby(['yday'])
+    # groupby the day ensuring the groups are sorted by day
+    # and rows are sorted by timestamp within each group
+    grouped = sorted(
+        [
+            (n, pd.DataFrame(g).sort_values('ts', ascending=True))
+            for n, g in records.groupby('yday')
+        ],
+        key=lambda x: x[0]
+    )
 
     ln_c, ln_d, entries = None, 0, []
-    for yday, group in grouped:
-        # convert to dataframe and sort by timestamp
-        df = pd.DataFrame(group).sort_values('ts', ascending=True)
-
+    for yday, df in grouped:
         start = end = last_c, ts_cnt = None, 0
-        for i, r in enumerate(df.itertuples()):
 
+        for i, r in enumerate(df.itertuples()):
             # if this point is assigned to a cluster
             if r.cid != 'xNot':
-                c = list(clusters.loc[clusters.cid == r.cid].itertuples())[0]
+                c = list(clusters.loc[clusters.cid == r.cid].itertuples())[0]  # let this throw an error. if it does,
+                # theres something wrong with the incoming cluster and record values
+
                 c = Cluster(c.lat, c.lon, c.cid)
 
                 # if a start hasn't been recorded
@@ -1334,10 +1361,7 @@ def get_cluster_times(records, clusters):
         # reset last-night's cluster and day
         ln_c, ln_d = last_c, int(yday)
 
-    if added_yday:
-        records.drop(columns=['yday'], inplace=True)
-    else:
-        pass
+    records.drop(columns=['yday'], inplace=True)
 
     entries = pd.DataFrame(entries)
     entries['duration'] = [
@@ -1459,8 +1483,8 @@ def get_daily_metrics(records, entries):
             hours_stationary_non_home_work=non_hw_stationary,
             hours_walking=np.round(r.loc[r.binning == 'walking'].time_delta.sum() / 3600, 3),
             distance_walking=np.round(r.loc[r.binning == 'walking'].displacement.sum()),
-            hours_brunch=np.round(r.loc[r.binning == 'brunch'].time_delta.sum() / 3600, 3),
-            distance_brunch=np.round(r.loc[r.binning == 'brunch'].displacement.sum()),
+            hours_active=np.round(r.loc[r.binning == 'active'].time_delta.sum() / 3600, 3),
+            distance_active=np.round(r.loc[r.binning == 'active'].displacement.sum()),
             hours_powered_vehicle=np.round(r.loc[r.binning == 'powered_vehicle'].time_delta.sum() / 3600, 3),
             distance_powered_vehicle=np.round(r.loc[r.binning == 'powered_vehicle'].displacement.sum(), 3),
             hours_high_speed_transportation=np.round(
@@ -1545,20 +1569,26 @@ def get_next_phase_clusters(records, clusters, params, min_distance=100, validat
 
             next_cid += len(dcs)
 
+        records.drop(columns=['dmask'], inplace=True)
+
     if len(cs) > 0:
         cs = pd.concat(cs, sort=True)
         cs['categories'] = cs['name'] = 'nap'
 
-        clusters = pd.concat([clusters, cs], sort=False)
+        clusters_ = pd.concat([clusters, cs], sort=False)
 
-        if not validation_metrics:
-            clusters = clusters.drop(columns=[
-                'lat_IQR', 'lat_max', 'lat_min', 'lat_range', 'lat_std',
-                'lon_IQR', 'lon_max', 'lon_min', 'lon_range', 'lon_std',
-                'max_distance_from_center'
-            ])
+        assert len(clusters) <= len(clusters_)
+        clusters = clusters_
 
     records = records.drop(columns=['exmask', 'day'])
+
+    if not validation_metrics:
+        clusters = clusters.drop(columns=[
+            'lat_IQR', 'lat_max', 'lat_min', 'lat_range', 'lat_std',
+            'lon_IQR', 'lon_max', 'lon_min', 'lon_range', 'lon_std',
+            'max_distance_from_center'
+        ], axis=1, errors='ignore')
+
     return records, clusters
 
 
@@ -1601,27 +1631,28 @@ def impute_between(coordinate_a, coordinate_b, freq):
         freq:
 
     Returns:
-
+        only return the new coordinates
     """
     metrics = discrete_velocity(coordinate_a, coordinate_b)
-    if metrics.get('binning') != 'stationary' and \
-            metrics.get('displacement') > 100:
-        return
+
+    # don't impute non-stationary points or points > 50 m apart or points > 8 hours apart
+    b, d, sec = metrics['binning'], metrics['displacement'], metrics['time_delta']
+    if b != 'stationary' or d > 50 or sec > 60**2*12:
+        return None
 
     a_lat, a_lon, a_ts = coordinate_a
     b_lat, b_lon, b_ts = coordinate_b
 
-    if not (isinstance(a_ts, dt.datetime) and isinstance(b_ts, dt.datetime)):
-        raise TypeError('third element of each coordinate tuple must be dt')
-
-    if (b_ts-a_ts).seconds < 15*60:
-        return
-
+    assert not pd.isnull(a_ts) and not pd.isnull(b_ts) and a_ts < b_ts
     fill_range = list(pd.date_range(a_ts, b_ts, freq=freq))
 
     # ensure the returned dataframe range is exclusive
     if fill_range[0] == a_ts:
         fill_range.remove(fill_range[0])
+
+    if len(fill_range) == 0:
+        return
+
     if fill_range[-1] == b_ts:
         fill_range.remove(fill_range[-1])
 
@@ -1649,60 +1680,42 @@ def impute_stationary_coordinates(records, freq='10Min', metrics=True):
     Returns:
         [GPS]
     """
-    records.sort_values('ts', inplace=True)
+    start_cnt = len(records)
+    assert sum(pd.isnull(records.ts)) == 0
 
-    # make a column unique by day to group on
-    records['day'] = records.ts.apply(lambda r: r.date())
+    if len(records) < 2:
+        return records
 
-    # group by days
-    grouped, all_days = records.groupby(['day']), []
-    for name, group in grouped:
-        records = pd.DataFrame(group)
-        records.index = np.arange(len(records))
+    # fill between the stationary gaps
+    cols = ['lat', 'lon', 'ts']
+    records = records.sort_values('ts').reset_index(drop=True)
 
-        if len(records) == 1:
-            continue
+    x_ = list(map(
+        lambda t: impute_between(*t, freq),
+        [(
+            tuple((v for v in records.loc[i-1, cols].values)),
+            tuple((v for v in records.loc[i,   cols].values))
+        )
+            for i in range(1, len(records))
+        ]
+    ))
 
-        # fill between the stationary gaps
-        cols = ['lat', 'lon', 'ts']
-        x = list(map(
-            lambda t: impute_between(*t, freq),
-            [(
-                tuple((v for v in records.loc[i-1, cols].values)),
-                tuple((v for v in records.loc[i, cols].values))
-            )
-                for i in range(1, len(records))
-            ]
-        ))
+    # flatten the list of dataframes and merge with the main
+    # For some crazy reason, Synapse and itertools are conflicting. when using itertools.chain.from_iterable to
+    # flatten the list, the results are all synapse objects rather than the dataframes they should be
+    x = [xi for xi in x_ if xi is not None]
+    if len(x) > 0:
+        x = pd.concat(x, sort=False)
 
-        # flatten the list of dataframes and merge with the main
-        x = [xi for xi in x if xi is not None]
+        assert set(x.columns) == set(records.columns)
+        assert len(records.loc[pd.isnull(records.ts)]) == 0
+        assert len(x.loc[pd.isnull(x.ts)]) == 0
 
-        if len(x) > 0:
-            x = pd.concat(x, sort=True)
-            records = pd.concat([records, x], axis=0, sort=True)
-            records.sort_values('ts', inplace=True)
+        records = pd.concat([records, x], axis=0, sort=False).sort_values('ts').reset_index(drop=True)
 
-            # recalculate velocities between the imputed locations
-            records = process_velocities(
-                [(r.lat, r.lon, r.ts) for r in records.itertuples()]
-            )
-        else:
-            pass
-
-        all_days.append(records)
-
-    # combine, sort, reset index
-    if len(all_days) > 0:
-        records = pd.concat(all_days, axis=0, sort=True)
-        records.sort_values('ts', inplace=True)
-        records.index = np.arange(len(records))
-
-    # cleanup
-    if 'day' in records.columns:
-        records.drop(columns='day', inplace=True)
-    else:
-        pass
+    # calculate velocities between the imputed locations
+    records = process_velocities(records)
+    assert len(records) >= start_cnt
 
     if not metrics:
         records.drop(
