@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import requests
 from sqlite3 import dbapi2 as sqlite
+import sys
 import time
 from urllib3.exceptions import ConnectionError
 
@@ -1022,7 +1023,8 @@ def estimate_home_location(records, parameters=None):
         { lat: float, lon: float }
     """
     gpr = [
-        (i, GPS(g.lat, g.lon, g.ts)) for i, g in enumerate(records.itertuples())
+        (i, GPS(g.lat, g.lon, g.ts))
+        for i, g in enumerate(records.itertuples())
         if 0 < g.ts.hour < 6 or 19 < g.ts.hour < 24
     ]
 
@@ -1035,6 +1037,7 @@ def estimate_home_location(records, parameters=None):
             if label == home.get('cid'):
                 t.append(gpr[i][0])
 
+        home['cid'] = 'home'
         return home, t
     else:
         return None, []
@@ -1051,8 +1054,8 @@ def estimate_work_location(records, parameters=None):
         Cluster, [int]
     """
     gpr = [
-        (i, GPS(g.lat, g.lon, g.ts)) for i, g in
-        enumerate(records.itertuples())
+        (i, GPS(g.lat, g.lon, g.ts))
+        for i, g in enumerate(records.itertuples())
         if 9 <= g.ts.hour <= 17 and g.ts.weekday() < 5
     ]
 
@@ -1065,6 +1068,7 @@ def estimate_work_location(records, parameters=None):
             if label == work.get('cid'):
                 t.append(gpr[i][0])
 
+        work['cid'] = 'work'
         return work, t
     else:
         return None, []
@@ -1195,72 +1199,141 @@ def geo_pairwise_distances(x, as_array=True, n_jobs=1):
     return np.array(sorted(result)) if as_array else x
 
 
-def get_clusters_with_context(records, parameters=None, validation_metrics=False):
-    records['cid'] = 'xNot'
-    stationary = records.loc[records.binning == 'stationary'].reset_index(drop=True)
-    others = records.loc[records.binning != 'stationary']
+def get_clusters_with_context(records, parameters=None, validation_metrics=False, fence=250):
+    try:
+        a = len(records)
+        records['cid'] = 'xNot'
+        stationary = records.loc[records.binning == 'stationary', :].reset_index(drop=True)
+        others     = records.loc[records.binning != 'stationary', :]
+        assert len(stationary) + len(others) == a
 
-    if len(records) < 3:
-        return records, None
+        if len(records) < 3:
+            return records, None
 
-    # find the home records
-    home, hmask = estimate_home_location(stationary, parameters)
-    home_records = stationary.iloc[hmask, :].copy()
-    home_records.cid = 'home'
+        # find the home records
+        home, hmask = estimate_home_location(stationary, parameters)
 
-    # find the work records
-    if 'working' not in records.columns or len(records.loc[records.working == True]) > 0:
-        work, wmask = estimate_work_location(stationary, parameters)
-        work_records = stationary.iloc[wmask, :].copy()
-        work_records.cid = 'work'
-    else:
-        work = work_records = None
-        wmask = []
+        if len(hmask) > 0:
+            hmask = list(set(hmask))
 
-    # scan the remaining records
-    rmask = list(set(np.arange(stationary.shape[0])) - set(hmask+wmask))
-    remaining = stationary.iloc[rmask, :].copy()
-    gps_records = [
-        GPS(lat=r.lat, lon=r.lon, ts=r.ts) for r in remaining.itertuples()
-    ]
-    labels, clusters = gps_dbscan(gps_records, parameters)
+            # label any other stationary records near the home as home
+            hlat = stationary.iloc[hmask, :].lat.median()
+            hlon = stationary.iloc[hmask, :].lon.median()
 
-    remaining.cid = [f'x{l}' if l != -1 else 'xNot' for l in labels]
+            for idx, r in stationary.iterrows():
+                hdist = geo_distance(hlat, hlon, r.lat, r.lon)
 
-    # append the home and work clusters
-    if home is not None:
-        home['cid'] = 'home'
-        clusters += [home]
+                if hdist <= fence and idx not in hmask:
+                    hmask.append(idx)
+                elif hdist > fence and idx in hmask:
+                    hmask.remove(idx)
 
-    if work is not None:
-        work['cid'] = 'work'
-        clusters += [work]
+            home_records = stationary.loc[hmask, :].copy()
+            home_records.cid = 'home'
 
-    clusters = pd.DataFrame(clusters)
+            # exclude the home records from future scans
+            a_ = len(stationary)
+            rmask = sorted(set(np.arange(len(stationary))) - set(hmask))
+            stationary = stationary.iloc[rmask, :].reset_index(drop=True)
 
-    clusters.cid = [
-        f'x{l}' if l not in ['home', 'work'] else l
-        for l in clusters.cid
-    ] if 'cid' in clusters.columns else 'xNot'
+            # verify we haven't lost any records
+            if not len(home_records) + len(stationary) == a_:
+                print(len(hmask) + len(rmask))
+                print(len(home_records) + len(stationary), a_)
+                assert 1 == 0
+        else:
+            home_records = None
 
-    records = pd.concat([home_records, work_records, remaining, others], sort=True)
+        # check for work records only if the participant works
+        work, wmask = None, []
+        if 'working' not in records.columns or len(records.loc[records.working, :]) > 0:
+            work, wmask = estimate_work_location(stationary, parameters)
 
-    clusters['name'] = 'nap'
-    clusters['categories'] = 'nap'
-    clusters.loc[clusters.cid == 'home', 'name'] = 'home'
-    clusters.loc[clusters.cid == 'home', 'categories'] = 'home'
-    clusters.loc[clusters.cid == 'work', 'name'] = 'work'
-    clusters.loc[clusters.cid == 'work', 'categories'] = 'work'
+            if len(wmask) > 0:
+                # label any other stationary records near the work as work
+                wlat = stationary.loc[wmask, :].lat.median()
+                wlon = stationary.loc[wmask, :].lon.median()
 
-    if not validation_metrics:
-        clusters = clusters.drop(columns=[
-            'lat_IQR', 'lat_max', 'lat_min', 'lat_range', 'lat_std',
-            'lon_IQR', 'lon_max', 'lon_min', 'lon_range', 'lon_std',
-            'max_distance_from_center'
-        ])
+                for idx, r in stationary.iterrows():
+                    if not 7 < r.ts.hour < 20:
+                        continue
 
-    assert len(records.loc[records.cid == '', :]) == 0
-    return records, clusters
+                    wdist = geo_distance(wlat, wlon, r.lat, r.lon)
+                    if wdist <= fence and idx not in wmask:
+                        wmask.append(idx)
+
+                    elif wdist > fence and idx in wmask:
+                        wmask.remove(idx)
+
+                work_records = stationary.loc[wmask, :].copy()
+                work_records.cid = 'work'
+
+                # exclude the work records from future scans
+                a_ = len(stationary)
+                rmask = sorted(set(np.arange(len(stationary))) - set(wmask))
+                stationary = stationary.iloc[rmask, :].reset_index(drop=True)
+
+                # verify we haven't lost any records
+                if not(len(work_records)) + len(stationary) == a_:
+                    print(len(wmask) + len(rmask))
+                    print(len(work_records) + len(stationary), a_)
+                    assert 1 == 0
+            else:
+                work_records = None
+        else:
+            work_records = None
+
+        # scan the remaining records
+        gps_records = [
+            GPS(lat=r.lat, lon=r.lon, ts=r.ts) for r in stationary.itertuples()
+        ]
+        labels, clusters = gps_dbscan(gps_records, parameters)
+
+        # set the cluster ids in the remaining stationary records
+        stationary.cid = [f'x{l}' if l != -1 else 'xNot' for l in labels]
+
+        # set the clusters ids in the clusters dataframe
+        clusters = pd.DataFrame(clusters, index=np.arange(len(clusters)))
+        clusters['cid'] = [
+            f'x{l}' if l != -1 else 'xNot' for l in clusters.cid
+        ]
+        clusters['name'] = 'nap'
+        clusters['categories'] = 'nap'
+
+        # append the home and work clusters
+        if home is not None:
+            clusters.append(home, ignore_index=True)
+
+        if work is not None and not isinstance(work, tuple):
+            clusters.append(work, ignore_index=True)
+
+        # set default cluster values
+        clusters['name'] = 'nap'
+        clusters['categories'] = 'nap'
+        clusters.loc[clusters.cid == 'home', 'name'] = 'home'
+        clusters.loc[clusters.cid == 'home', 'categories'] = 'home'
+        clusters.loc[clusters.cid == 'work', 'name'] = 'work'
+        clusters.loc[clusters.cid == 'work', 'categories'] = 'work'
+
+        # concatenate the resulting records
+        records = pd.concat([home_records, work_records, stationary, others], sort=False).sort_values(by='ts')
+        if not len(records) == a:
+            print(a-len(records))
+            assert 1 == 0
+
+        if not validation_metrics:
+            clusters = clusters.drop(columns=[
+                'lat_IQR', 'lat_max', 'lat_min', 'lat_range', 'lat_std',
+                'lon_IQR', 'lon_max', 'lon_min', 'lon_range', 'lon_std',
+                'max_distance_from_center'
+            ])
+
+        assert len(records.loc[records.cid == '', :]) == 0
+        return records, clusters
+    except Exception as e:
+        exc_type, exc_obj, exc_tb = sys.exc_info()
+        fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+        print(e, exc_type, fname, exc_tb.tb_lineno)
 
 
 def get_cluster_times(records, clusters):
@@ -1563,7 +1636,7 @@ def get_next_phase_clusters(records, clusters, params, min_distance=100, validat
                 geo_distance(row.lat, row.lon, c.lat, c.lon) < min_distance
                 for c in cur_cluster_set.itertuples()
             ]):
-                records.loc[idx, 'dmask'] ^= True
+                records.loc[idx, 'exmask'] = False
 
         assert all(
             [cid == 'xNot' for cid in records.loc[records.exmask & records.dmask].cid]
@@ -1651,7 +1724,7 @@ def impute_between(coordinate_a, coordinate_b, freq):
     metrics = discrete_velocity(coordinate_a, coordinate_b)
 
     b, d, sec = metrics['binning'], metrics['displacement'], metrics['time_delta']
-    if b != 'stationary' or d > 100 or sec > 60**2*12:
+    if b != 'stationary' or d > 75 or sec > 60**2*12:
         return None
 
     a_lat, a_lon, a_ts = coordinate_a
