@@ -272,6 +272,7 @@ class YelpRankBy(Enum):
     REVIEW_COUNT = 'review_count'
     DISTANCE = 'distance'
 
+
 with synapse_scope() as s:
     YELP_TYPE_MAP = pd.read_csv(s.get('syn17011507').path).set_index('cat')
 
@@ -996,7 +997,7 @@ def estimate_home_location(records, parameters=None):
     """
     gpr = [
         (i, GPS(g.lat, g.lon, g.ts)) for i, g in enumerate(records.itertuples())
-        if (0 < g.ts.hour or g.ts.hour < 6) # change made by recomendation of paper.
+        if 0 < g.ts.hour < 6  # change made by recomendation of paper.
         # TODO: FIND THE SOURCE
     ]
 
@@ -1226,15 +1227,6 @@ def get_clusters_with_context(records, parameters=None, validation_metrics=False
     clusters.loc[clusters.cid == 'home', 'categories'] = 'home'
     clusters.loc[clusters.cid == 'work', 'name'] = 'work'
     clusters.loc[clusters.cid == 'work', 'categories'] = 'work'
-
-    records['distance_from_home'] = [
-        np.round(geo_distance(
-            home.get('lat'),
-            home.get('lon'),
-            r.lat, r.lon), 3)
-        if home is not None else np.nan
-        for r in records.itertuples()
-    ]
 
     if not validation_metrics:
         clusters = clusters.drop(columns=[
@@ -1479,6 +1471,7 @@ def get_daily_metrics(records, entries):
         # location variance - https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5571235/
         lv = np.std(r.lat) + np.std(r.lon)
         lv = np.log(lv) if lv > 0 else np.nan
+
         dm = dict(
             date=day,
             location_variance=lv,
@@ -1501,8 +1494,7 @@ def get_daily_metrics(records, entries):
             hours_at_work=np.round(work, 3),
             came_to_work=any(de.cid == 'work'),
             number_of_clusters=len(todays_clusters),
-            hours_spent_in_top_3_clusters=np.round(ct / 3600, 3),
-            max_distance_from_home=np.round(np.max(r.distance_from_home), 3),
+            hours_spent_in_top_3_clusters=np.round(ct / 3600, 3)
         )
 
         t.append(dm)
@@ -1635,7 +1627,7 @@ def impute_between(coordinate_a, coordinate_b, freq):
     metrics = discrete_velocity(coordinate_a, coordinate_b)
 
     b, d, sec = metrics['binning'], metrics['displacement'], metrics['time_delta']
-    if b != 'stationary' or d > 50 or sec > 60**2*12:
+    if b != 'stationary' or d > 75 or sec > 60**2*12:
         return None
 
     a_lat, a_lon, a_ts = coordinate_a
@@ -1663,7 +1655,7 @@ def impute_between(coordinate_a, coordinate_b, freq):
     return pd.DataFrame(t)
 
 
-def impute_stationary_coordinates(records, freq='10Min', metrics=True):
+def impute_stationary_coordinates(records, freq='5Min', metrics=True):
     """resample a stream of `gps_records` boosting the number of points
     spent at stationary positions. This method is used due to to how the
     data were collected. GPS coordinates were recorded at either 15min
