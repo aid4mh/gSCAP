@@ -68,6 +68,18 @@ dpath = lambda x: os.path.join(Path.home(), '.gscap', x)
 if not os.path.exists(dpath('')):
     os.mkdir(dpath(''))
 
+"""check for config file"""
+config_file = os.path.join(Path.home(), '.gscapConfig')
+if not os.path.exists(config_file):
+    print('configuration file not found')
+else:
+    with open(config_file, 'r') as f:
+        cf = f.readlines()
+
+    # read each line of the file into a dictionary as a key value pair separated with an '='
+    #  ignore lines beginning with '#'
+    CONFIG = {k: v for k, v in [list(map(lambda x: x.strip(), l.split('='))) for l in cf if l[0] != '#']}
+
 """only open this zips once, download if unavailable"""
 zname = 'zips.csv'
 if not os.path.exists(dpath(zname)):
@@ -180,12 +192,11 @@ class PlaceRequest(Base):
     dtRetrieved = Column(DateTime)
     content = Column(String)
 
-    def __init__(self, lat=None, lon=None, radius=None, rankby=None, source=None, key=None):
+    def __init__(self, lat=None, lon=None, radius=None, rankby=None, source=None):
         self.lat = np.round(lat, 5) if isnum(lat) else np.nan
         self.lon = np.round(lon, 5) if isnum(lon) else np.nan
         self.valid = self.__verify_location()
 
-        self.key = key
         self.radius = radius
         self.rankby = rankby.value
 
@@ -266,6 +277,11 @@ with synapse_scope() as s:
 
 
 def yelp_call(request):
+    try:
+        key = CONFIG['YelpAPI']
+    except KeyError:
+        print('a key for YelpAPI was not found in .gscapConfig file')
+
     url = 'https://api.yelp.com/v3/businesses/search'
     params = {
         'latitude': request.lat,
@@ -278,15 +294,18 @@ def yelp_call(request):
     while not complete:
         with requests.Session() as s:
             s.headers.update({
-                'Authorization': f'Bearer {request.key}'
+                'Authorization': f'Bearer {key}'
             })
 
             response = s.get(url, params=params)
-            result = response.json()
-            complete = True
+            if response.ok:
+                result = response.json()
+                complete = True
+            else:
+                time.sleep(np.random.uniform(.01, 5, 1)[0])
 
         if 'TOO_MANY_REQUESTS_PER_SECOND' in str(response.content):
-            time.sleep(np.random.exponential(3, 1)[0])
+            time.sleep(np.random.uniform(.01, 5, 1)[0])
             complete = False
 
     request.content = json.dumps(result)
@@ -399,7 +418,12 @@ def gmapping(x):
 
 
 def gmap_call(request):
-    gmaps = googlemaps.Client(key=request.key)
+    try:
+        key = CONFIG['GooglePlacesAPI']
+    except KeyError:
+        print('a key for GooglePlacesAPI was not found in .gscapConfig file')
+
+    gmaps = googlemaps.Client(key=key)
     nearby_request = gmaps.places_nearby(
         location=(request.lat, request.lon),
         radius=request.radius,
@@ -1625,6 +1649,10 @@ def impute_between(coordinate_a, coordinate_b, freq):
     # ensure the returned dataframe range is exclusive
     if fill_range[0] == a_ts:
         fill_range.remove(fill_range[0])
+
+    if len(fill_range) == 0:
+        return
+
     if fill_range[-1] == b_ts:
         fill_range.remove(fill_range[-1])
 
