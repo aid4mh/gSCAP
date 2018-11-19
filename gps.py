@@ -1488,8 +1488,8 @@ def get_daily_metrics(records, entries):
             hours_stationary_non_home_work=non_hw_stationary,
             hours_walking=np.round(r.loc[r.binning == 'walking'].time_delta.sum() / 3600, 3),
             distance_walking=np.round(r.loc[r.binning == 'walking'].displacement.sum()),
-            hours_brunch=np.round(r.loc[r.binning == 'brunch'].time_delta.sum() / 3600, 3),
-            distance_brunch=np.round(r.loc[r.binning == 'brunch'].displacement.sum()),
+            hours_active=np.round(r.loc[r.binning == 'active'].time_delta.sum() / 3600, 3),
+            distance_active=np.round(r.loc[r.binning == 'active'].displacement.sum()),
             hours_powered_vehicle=np.round(r.loc[r.binning == 'powered_vehicle'].time_delta.sum() / 3600, 3),
             distance_powered_vehicle=np.round(r.loc[r.binning == 'powered_vehicle'].displacement.sum(), 3),
             hours_high_speed_transportation=np.round(
