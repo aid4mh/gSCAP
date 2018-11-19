@@ -885,26 +885,46 @@ def process_velocities(records):
         records = pd.DataFrame(records, columns=cols)
 
     # generate a 'nan' row for the first coordinate
-    nanrow = [dict(
+    nanrow = dict(
         displacement=np.nan,
         time_delta=np.nan,
         velocity=np.nan,
-        binning='stationary')
-    ]
+        binning='null'
+    )
 
-    # rolling window calculating between rows i and i-1
-    x = list(map(
-        lambda t: discrete_velocity(*t),
-        [(
-            tuple((v for v in records.loc[i, cols].values)),
-            tuple((v for v in records.loc[i-1, cols].values))
-        )
+    # ensure the records are sorted
+    records.sort_values(by='ts', inplace=True)
+
+    # drop any of the metric columns if they've been calculated before
+    records.drop(columns=['displacement', 'time_delta', 'velocity', 'binning'], errors='ignore', inplace=True)
+
+    # define a function to verify results of discrete velocities
+    def fx(t):
+        metrics = discrete_velocity(*t)
+
+        if metrics['time_delta'] > 60**2*18:
+            return nanrow.copy()
+
+        if metrics['binning'] == 'active' and metrics['time_delta'] > 60**2*12:
+            return nanrow.copy()
+
+        return metrics
+
+    # rolling window calculating velocities between rows i and i-1
+    x = list(map(fx, [
+            (
+                tuple((v for v in records.loc[i,   cols].values)),
+                tuple((v for v in records.loc[i-1, cols].values))
+            )
             for i in range(1, len(records))
-        ]))
+        ]
+    ))
 
-    # merge in the new columns
-    x = pd.DataFrame(nanrow + x)
-    records = pd.concat([records, x], axis=1, sort=True)
+    # merge the calculated rows with the first nanrow
+    x = pd.DataFrame([nanrow] + x)
+
+    # concatenate the new columns
+    records = pd.concat([records, x], axis=1, sort=False)
     return records
 
 
@@ -937,13 +957,12 @@ def discrete_velocity(coordinate_a, coordinate_b):
     if not (isinstance(coordinate_a[-1], dt.datetime) and isinstance(coordinate_b[-1], dt.datetime)):
         raise TypeError('the third argument of each tuple must be a datetime')
 
-    meters = geo_distance(*coordinate_a[:2], *coordinate_b[:2])
-
     if coordinate_b[-1] > coordinate_a[-1]:
         seconds = (coordinate_b[-1] - coordinate_a[-1]).seconds
     else:
         seconds = (coordinate_a[-1] - coordinate_b[-1]).seconds
 
+    meters = geo_distance(*coordinate_a[:2], *coordinate_b[:2])
     velocity = meters/seconds if seconds != 0 else np.nan
 
     # stationary - if the velocity is less than what you'd expect
@@ -962,7 +981,7 @@ def discrete_velocity(coordinate_a, coordinate_b):
     # right now I'm assuming anything over 20mph is most likely a powered
     # vehicle. I'm having difficulty finding a
     # good data set for this. 20 mph ~ 8.9 m/s
-    elif velocity < 6.9:
+    elif velocity < 5.9:
         binning = 'active'
 
     # 67.056 m/s ~ 150 mph ~ 241.4016 kmh
@@ -974,8 +993,15 @@ def discrete_velocity(coordinate_a, coordinate_b):
     elif velocity < 312.928:
         binning = 'high_speed_transportation'
 
+        # else something bad must have happened during the GPS recording meaning
+        # this is coordinate is noise. make sure it doesn't get included in aggregations
     else:
-        binning = 'anomaly'
+        return dict(
+            binning='anomaly',
+            velocity=np.nan,
+            displacement=np.nan,
+            time_delta=np.nan,
+        )
 
     return dict(
         displacement=np.round(meters, 1),
@@ -997,8 +1023,7 @@ def estimate_home_location(records, parameters=None):
     """
     gpr = [
         (i, GPS(g.lat, g.lon, g.ts)) for i, g in enumerate(records.itertuples())
-        if 0 < g.ts.hour < 6  # change made by recomendation of paper.
-        # TODO: FIND THE SOURCE
+        if 0 < g.ts.hour < 6 or 19 < g.ts.hour < 24
     ]
 
     args = gps_dbscan([t[1] for t in gpr], parameters=parameters)
@@ -1028,8 +1053,7 @@ def estimate_work_location(records, parameters=None):
     gpr = [
         (i, GPS(g.lat, g.lon, g.ts)) for i, g in
         enumerate(records.itertuples())
-        if not (17 <= g.ts.hour or g.ts.hour < 9)
-           and g.ts.weekday() < 5
+        if 9 <= g.ts.hour <= 17 and g.ts.weekday() < 5
     ]
 
     args = gps_dbscan([t[1] for t in gpr], parameters=parameters)
@@ -1173,7 +1197,7 @@ def geo_pairwise_distances(x, as_array=True, n_jobs=1):
 
 def get_clusters_with_context(records, parameters=None, validation_metrics=False):
     records['cid'] = 'xNot'
-    stationary = records.loc[records.binning == 'stationary']
+    stationary = records.loc[records.binning == 'stationary'].reset_index(drop=True)
     others = records.loc[records.binning != 'stationary']
 
     if len(records) < 3:
@@ -1627,7 +1651,7 @@ def impute_between(coordinate_a, coordinate_b, freq):
     metrics = discrete_velocity(coordinate_a, coordinate_b)
 
     b, d, sec = metrics['binning'], metrics['displacement'], metrics['time_delta']
-    if b != 'stationary' or d > 75 or sec > 60**2*12:
+    if b != 'stationary' or d > 100 or sec > 60**2*12:
         return None
 
     a_lat, a_lon, a_ts = coordinate_a
@@ -1643,7 +1667,7 @@ def impute_between(coordinate_a, coordinate_b, freq):
         fill_range.remove(fill_range[0])
 
     if len(fill_range) == 0:
-        return
+        return None
 
     if fill_range[-1] == b_ts:
         fill_range.remove(fill_range[-1])
@@ -1655,7 +1679,7 @@ def impute_between(coordinate_a, coordinate_b, freq):
     return pd.DataFrame(t)
 
 
-def impute_stationary_coordinates(records, freq='5Min', metrics=True):
+def impute_stationary_coordinates(records, freq='10Min', metrics=True):
     """resample a stream of `gps_records` boosting the number of points
     spent at stationary positions. This method is used due to to how the
     data were collected. GPS coordinates were recorded at either 15min
@@ -1672,60 +1696,64 @@ def impute_stationary_coordinates(records, freq='5Min', metrics=True):
     Returns:
         [GPS]
     """
-    records.sort_values('ts', inplace=True)
+    start_cnt = len(records)
+    assert sum(pd.isnull(records.ts)) == 0
 
-    # make a column unique by day to group on
-    records['day'] = records.ts.apply(lambda r: r.date())
+    if len(records) < 2:
+        return records
 
-    # group by days
-    grouped, all_days = records.groupby(['day']), []
-    for name, group in grouped:
-        records = pd.DataFrame(group)
-        records.index = np.arange(len(records))
+    # fill between the stationary gaps
+    cols = ['lat', 'lon', 'ts']
+    records = records.sort_values('ts').reset_index(drop=True)
 
-        if len(records) == 1:
+    x_ = list(map(
+        lambda t: impute_between(*t, freq),
+        [(
+            tuple((v for v in records.loc[i-1, cols].values)),
+            tuple((v for v in records.loc[i,   cols].values))
+        )
+            for i in range(1, len(records))
+        ]
+    ))
+
+    # flatten the list of dataframes and merge with the main
+    # For some crazy reason, Synapse and itertools are conflicting. when using itertools.chain.from_iterable to
+    # flatten the list, the results are all synapse objects rather than the dataframes they should be
+    x = [xi for xi in x_ if xi is not None]
+    if len(x) > 0:
+        x = pd.concat(x, sort=False)
+
+        assert set(x.columns) == set(records.columns)
+        assert len(records.loc[pd.isnull(records.ts)]) == 0
+        assert len(x.loc[pd.isnull(x.ts)]) == 0
+
+        records = pd.concat([records, x], axis=0, sort=False).sort_values('ts').reset_index(drop=True)
+
+    # calculate velocities between the imputed locations
+    records = process_velocities(records)
+    assert len(records) >= start_cnt
+
+    # make sure the beginning row for each day only has time_deltas into the current day
+    records.drop(columns=['date'], errors='ignore', inplace=True)
+    records['date'] = records.ts.apply(lambda ts: ts.date())
+
+    first_days = records[['date', 'ts']].groupby(['date']).min()
+    for idx, r in records.iterrows():
+        if r.time_delta == np.nan:
             continue
 
-        # fill between the stationary gaps
-        cols = ['lat', 'lon', 'ts']
-        x = list(map(
-            lambda t: impute_between(*t, freq),
-            [(
-                tuple((v for v in records.loc[i-1, cols].values)),
-                tuple((v for v in records.loc[i, cols].values))
-            )
-                for i in range(1, len(records))
-            ]
-        ))
+        earliest = first_days.loc[r.date]
+        if r.ts != earliest.ts:
+            continue
 
-        # flatten the list of dataframes and merge with the main
-        x = [xi for xi in x if xi is not None]
-
-        if len(x) > 0:
-            x = pd.concat(x, sort=True)
-            records = pd.concat([records, x], axis=0, sort=True)
-            records.sort_values('ts', inplace=True)
-
-            # recalculate velocities between the imputed locations
-            records = process_velocities(
-                [(r.lat, r.lon, r.ts) for r in records.itertuples()]
-            )
         else:
-            pass
+            start = dt.datetime(year=r.date.year, month=r.date.month, day=r.date.day)
+            records.loc[idx, 'time_delta'] = (r.ts-start).seconds
 
-        all_days.append(records)
-
-    # combine, sort, reset index
-    if len(all_days) > 0:
-        records = pd.concat(all_days, axis=0, sort=True)
-        records.sort_values('ts', inplace=True)
-        records.index = np.arange(len(records))
-
-    # cleanup
-    if 'day' in records.columns:
-        records.drop(columns='day', inplace=True)
-    else:
-        pass
+    # ensure any null records have np.nan for time_deltas
+    records.loc[records.binning == 'null', 'time_delta']   = np.nan
+    records.loc[records.binning == 'null', 'displacement'] = np.nan
+    records.loc[records.binning == 'null', 'velocity']     = np.nan
 
     if not metrics:
         records.drop(
