@@ -1300,12 +1300,19 @@ def get_clusters_with_context(records, parameters=None, validation_metrics=False
         clusters['name'] = 'nap'
         clusters['categories'] = 'nap'
 
-        # append the home and work clusters
-        if home is not None:
-            clusters.append(home, ignore_index=True)
+        # append the home cluster
+        if isinstance(home, dict):
+            clusters = pd.concat(
+                [clusters, pd.DataFrame(home, index=[0])],
+                axis=0, ignore_index=True, sort=False
+            )
 
-        if work is not None and not isinstance(work, tuple):
-            clusters.append(work, ignore_index=True)
+        # append the work cluster
+        if isinstance(work, dict):
+            clusters = pd.concat(
+                [clusters, pd.DataFrame(work, index=[0])],
+                axis=0, ignore_index=True, sort=False
+            )
 
         # set default cluster values
         clusters['name'] = 'nap'
@@ -1328,7 +1335,17 @@ def get_clusters_with_context(records, parameters=None, validation_metrics=False
                 'max_distance_from_center'
             ])
 
+        # make sure all records are labeled
         assert len(records.loc[records.cid == '', :]) == 0
+
+        # make sure all record cids have matching clusters
+        rcs = set(records.cid.unique()) - {'xNot'}
+        ccs = set(clusters.cid.unique())
+        if rcs != ccs:
+            print('unique cids in records: ', rcs)
+            print('unique cids in clusters: ', ccs)
+            assert 1 == 0
+
         return records, clusters
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -1359,7 +1376,7 @@ def get_cluster_times(records, clusters):
 
             # if this point is assigned to a cluster
             if r.cid != 'xNot':
-                c = list(clusters.loc[clusters.cid == r.cid].itertuples())[0]
+                c = clusters.loc[clusters.cid == r.cid]
                 c = Cluster(c.lat, c.lon, c.cid)
 
                 # if a start hasn't been recorded
