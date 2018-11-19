@@ -1376,7 +1376,7 @@ def get_cluster_times(records, clusters):
 
             # if this point is assigned to a cluster
             if r.cid != 'xNot':
-                c = clusters.loc[clusters.cid == r.cid]
+                c = list(clusters.loc[clusters.cid == r.cid].itertuples())[0]
                 c = Cluster(c.lat, c.lon, c.cid)
 
                 # if a start hasn't been recorded
