@@ -1199,7 +1199,7 @@ def geo_pairwise_distances(x, as_array=True, n_jobs=1):
     return np.array(sorted(result)) if as_array else x
 
 
-def get_clusters_with_context(records, parameters=None, validation_metrics=False, fence=250):
+def get_clusters_with_context(records, parameters=None, validation_metrics=False, fence=500):
     try:
         a = len(records)
         records['cid'] = 'xNot'
@@ -1524,110 +1524,144 @@ def get_cluster_times(records, clusters):
 
 
 def get_daily_metrics(records, entries):
-    t = []
-    records['day'] = records.ts.apply(lambda x: x.date())
-    days = pd.unique(records.day)
+    # location variance - https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5571235/
+    def location_variance(x):
+        a = np.std(x.lat) + np.std(x.lon)
+        a = np.round(np.log(a), 3) if a > 0 else np.nan
+        return a
 
+    def hours_accounted_for(x):
+        a = len(x.ts.apply(lambda r: r.hour).unique())
+        return a
+
+    def hours_in(x, cid):
+        if not isinstance(cid, list):
+            cid = [cid]
+
+        a = x.loc[[xi in cid for xi in x.cid]]
+        return np.round(a.time_delta.sum() / 3600, 3)
+
+    def hours_stationary_nhw(x):
+        return np.round(x.loc[
+            (x.binning == 'stationary') &
+            (x.cid != 'home') &
+            (x.cid != 'work')
+        ].time_delta.sum() / 3600, 3)
+
+    def hours_bin(x, binn):
+        return np.round(x.loc[(x.binning == binn)].time_delta.sum() / 3600, 3)
+
+    def distance_bin(x, binn):
+        return np.round(x.loc[(x.binning == binn)].displacement.sum(), 3)
+
+    def came_to_work(x):
+        return any(x.cid == 'work')
+
+    def number_of_clusters(x):
+        return len(x.cid.unique())
+
+    def rec_join(x):
+        if len(x) == 1:
+            return x[0]
+
+        return x[0].merge(rec_join(x[1:]), how='outer', on='date')
+
+    # add features that don't require arguments
+    y = [
+        records.groupby('date').apply(func).reset_index().rename(columns={0: func.__name__})
+        for func in [
+            location_variance,
+            hours_accounted_for,
+            hours_stationary_nhw,
+            came_to_work,
+            number_of_clusters,
+        ]
+    ]
+
+    # add hours in each velocity bin
+    binns = ['stationary', 'walking', 'active', 'powered_vehicle', 'high_speed_transportation']
+    y += [
+        records.groupby('date')
+            .apply(hours_bin, binn=binn)
+            .reset_index()
+            .rename(columns={0: f'hours_{binn}'})
+        for binn in binns
+    ]
+
+    # add distance in each velocity bin
+    y += [
+        records.groupby('date')
+            .apply(distance_bin, binn=binn)
+            .reset_index()
+            .rename(columns={0: f'distance_{binn}'})
+        for binn in binns
+    ]
+
+    # add hours in home, work
+    y += [
+        records.groupby('date')
+            .apply(hours_in, cid=cid)
+            .reset_index()
+            .rename(columns={0: f'hours_in_{cid}'})
+        for cid in ['home', 'work']
+    ]
+
+    # add hours in top3
     top_3 = list(
         records.loc[
-             (records.cid != 'home') &
-             (records.cid != 'work') & (records.cid != 'xNot'),
-             ['cid', 'time_delta']
+            (records.cid != 'home') &
+            (records.cid != 'work') & (records.cid != 'xNot'),
+            ['cid', 'time_delta']
         ].groupby('cid').sum().reset_index().sort_values('time_delta', ascending=False).iloc[:3].cid.values
     )
 
-    ln_sleep = None
-    for day in days:
+    y += [
+        records.groupby('date').apply(hours_in, cid=top_3).reset_index().rename(columns={0: 'hours_in_top3'})
+    ]
+
+    # calculate sleep
+    t_last, t = None, []
+    for day in records.date.unique():
         # get the days records
-        de = entries.loc[entries.date == day]
-        r = records.loc[records.day == day]
+        r = records.loc[records.date == day]
 
-        # quantify hours of sleep using only if last night's ending cluster was the same
-        # as the morning and was in fact the day prior
-        sleep = pd.to_datetime(r.loc[r.ts == np.min(r.ts)].ts.values)
-        sleep = sleep[0] if len(sleep) > 0 else None
+        t_start = r.loc[r.ts == np.min(r.ts), ['lat', 'lon', 'ts']].iloc[0]
+        midnight = dt.datetime(
+            year=t_start.ts.year,
+            month=t_start.ts.month,
+            day=t_start.ts.day
+        )
 
-        c2 = r.loc[r.ts == np.min(r.ts)].cid.values
-        c2 = c2[0] if len(c2) > 0 else None
+        # verify t_last
+        ln_seconds = 0
+        if t_last is not None:
+            # make sure t_last isn't more than 24 hours apart
+            if (t_start.ts-t_last.ts).total_seconds() > 24*60**2:
+                pass
 
-        if sleep is not None and c2 is not None:
-            sleep = dt.datetime(
-                year=sleep.year, month=sleep.month, day=sleep.day, hour=sleep.hour, minute=sleep.minute
-            ) - dt.datetime(year=sleep.year, month=sleep.month, day=sleep.day, hour=0, minute=0)
+            # make sure t_last is close in geographical position
+            elif geo_distance(*t_start[['lat', 'lon']], *t_last[['lat', 'lon']]) > 500:
+                pass
 
-            if ln_sleep is not None and (sleep + ln_sleep[0]).total_seconds() / 3600 < 24 and c2 == c1:
-                sleep = (ln_sleep[0] + sleep).total_seconds() / 3600
             else:
-                sleep = np.nan
+                ln_seconds = (midnight-t_last.ts).seconds
         else:
-            sleep = np.nan
+            pass
 
-        # calculate the time spent in the subject's overall top 3 cluster
-        todays_clusters = pd.unique(de.cid)
-        ct = [
-            de.loc[de.cid == ci].duration.sum().total_seconds()
-            for ci in todays_clusters if ci in top_3]
-        ct = np.sum(ct)
-
-        # calculate the time spent in the home and work clusters
-        home = de.loc[de.cid == 'home'].duration.sum().total_seconds() / 3600
-        work = de.loc[de.cid == 'work'].duration.sum().total_seconds() / 3600
-
-        # calculate how many hours in the day had GPS data
-        hod = len(pd.unique(r.ts.apply(lambda r: r.hour)))
-
-        # stationary hours outside home/work clusters
-        non_hw_stationary = np.round(
-            r.loc[
-                (r.cid != 'home') & (r.cid != 'work') & (r.binning == 'stationary')
-         ].time_delta.sum() / 3600, 3)
-
-        # location variance - https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5571235/
-        lv = np.std(r.lat) + np.std(r.lon)
-        lv = np.log(lv) if lv > 0 else np.nan
+        sleep = ((t_start[2]-midnight).seconds + ln_seconds)/3600
+        t_last  = r.loc[r.ts == np.max(r.ts), ['lat', 'lon', 'ts']].iloc[0]
 
         dm = dict(
             date=day,
-            location_variance=lv,
-            hours_accounted_for=hod,
-            hours_without_data=24 - hod,
-            hours_stationary=np.round(r.loc[r.binning == 'stationary'].time_delta.sum() / 3600, 3),
-            hours_stationary_non_home_work=non_hw_stationary,
-            hours_walking=np.round(r.loc[r.binning == 'walking'].time_delta.sum() / 3600, 3),
-            distance_walking=np.round(r.loc[r.binning == 'walking'].displacement.sum()),
-            hours_active=np.round(r.loc[r.binning == 'active'].time_delta.sum() / 3600, 3),
-            distance_active=np.round(r.loc[r.binning == 'active'].displacement.sum()),
-            hours_powered_vehicle=np.round(r.loc[r.binning == 'powered_vehicle'].time_delta.sum() / 3600, 3),
-            distance_powered_vehicle=np.round(r.loc[r.binning == 'powered_vehicle'].displacement.sum(), 3),
-            hours_high_speed_transportation=np.round(
-                r.loc[r.binning == 'high_speed_transportation'].time_delta.sum() / 3600, 3),
-            distance_high_speed_transportation=np.round(
-                r.loc[r.binning == 'high_speed_transportation'].displacement.sum(), 3),
-            hours_of_sleep=np.round(sleep, 3) if sleep is not np.nan else np.nan,
-            hours_at_home=np.round(home, 3),
-            hours_at_work=np.round(work, 3),
-            came_to_work=any(de.cid == 'work'),
-            number_of_clusters=len(todays_clusters),
-            hours_spent_in_top_3_clusters=np.round(ct / 3600, 3)
+            hours_of_sleep=np.round(sleep, 3)
         )
 
         t.append(dm)
 
-        # create some metrics for the next pass to calculate sleep patterns
-        t1 = r.loc[r.ts == np.max(r.ts)].ts
-        t1 = t1.iloc[0] if len(t1) > 0 else None
+    y += [pd.DataFrame(t)]
 
-        c1 = r.loc[r.ts == np.max(r.ts)].cid.values
-        c1 = c1[0] if len(c1) > 0 else None
-
-        if t1 is not None and c1 is not None:
-            t1 = dt.datetime(year=t1.year, month=t1.month, day=t1.day, hour=t1.hour, minute=t1.minute)
-            ln_sleep = ((dt.datetime(year=t1.year, month=t1.month, day=t1.day, hour=23, minute=59) - t1),
-                        t1, c1)
-        else:
-            ln_sleep = None
-
-    return pd.DataFrame(t)
+    # join each feature with an outer join on the date
+    return rec_join(y)
 
 
 def get_next_phase_clusters(records, clusters, params, min_distance=100, validation_metrics=False):
