@@ -1290,13 +1290,14 @@ def get_clusters_with_context(records, parameters=None, validation_metrics=False
         labels, clusters = gps_dbscan(gps_records, parameters)
 
         # set the cluster ids in the remaining stationary records
+        assert len(labels) == len(stationary)
         stationary.cid = [f'x{l}' if l != -1 else 'xNot' for l in labels]
 
         # set the clusters ids in the clusters dataframe
         clusters = pd.DataFrame(clusters, index=np.arange(len(clusters)))
         clusters['cid'] = [
             f'x{l}' if l != -1 else 'xNot' for l in clusters.cid
-        ]
+        ] if 'cid' in clusters.columns else 'xNot'
         clusters['name'] = 'nap'
         clusters['categories'] = 'nap'
 
@@ -1333,7 +1334,7 @@ def get_clusters_with_context(records, parameters=None, validation_metrics=False
                 'lat_IQR', 'lat_max', 'lat_min', 'lat_range', 'lat_std',
                 'lon_IQR', 'lon_max', 'lon_min', 'lon_range', 'lon_std',
                 'max_distance_from_center'
-            ])
+            ], errors='ignore')
 
         # make sure all records are labeled
         assert len(records.loc[records.cid == '', :]) == 0
@@ -1745,7 +1746,7 @@ def gps_dbscan(gps_records, parameters=None):
         ordered by number of points contained in each cluster
     """
     if len(gps_records) < 2:
-        return [], []
+        return [-1 for i in range(len(gps_records))], []
 
     # check if parameters were supplied
     eps, min_samples, metric, n_jobs = __validate_scikit_params(parameters)
