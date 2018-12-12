@@ -135,7 +135,7 @@ class HourlyWeatherReport(Base):
     def from_tuple(self, tup):
         self.lat = tup.lat
         self.lon = tup.lon
-        self.time = tup.time
+        self.time = tup.day
         self.apparentTemperature = tup.apparentTemperature
         self.cloudCover = tup.cloudCover
         self.cloudCoverError = tup.cloudCoverError
@@ -215,6 +215,18 @@ WeatherRequest = namedtuple(
     'WeatherRequest', ['date', 'lat', 'lon', 'zipcode']
 )
 
+"""check for config file"""
+config_file = os.path.join(Path.home(), '.gscapConfig')
+if not os.path.exists(config_file):
+    print('configuration file not found')
+else:
+    with open(config_file, 'r') as f:
+        cf = f.readlines()
+
+    # read each line of the file into a dictionary as a key value pair separated with an '='
+    #  ignore lines beginning with '#'
+    CONFIG = {k: v for k, v in [list(map(lambda x: x.strip(), l.split('='))) for l in cf if l[0] != '#']}
+
 """only open this zips once, download if unavailable"""
 zname = 'zips.csv'
 if not os.path.exists(dpath(zname)):
@@ -265,7 +277,7 @@ def cache_manager(request_qu, response_qu):
 
 
 def weather_report(
-        request, key, summarize='daily', n_jobs=1, progress_qu=None
+        request, summarize='daily', n_jobs=1, progress_qu=None
 ):
 
     """retrieve a weather report for specific lat, lon, and day
@@ -304,7 +316,7 @@ def weather_report(
     # maintain the current behavior if only one day/lat/lon is requested
     if len(request) == 1:
         results = [process_request(
-            (request[0], key, progress_qu, request_qu, response_qu)
+            (request[0], progress_qu, request_qu, response_qu)
         )]
         request_qu.put(dict(type='end'))
 
@@ -312,7 +324,7 @@ def weather_report(
     else:
         results = list(pool.map(
             process_request,
-            [(ri, key, progress_qu, request_qu, response_qu) for ri in request]
+            [(ri, progress_qu, request_qu, response_qu) for ri in request]
         ))
         request_qu.put(dict(type='end'))
 
@@ -519,7 +531,9 @@ def summarize_report(args):
 
 
 def process_request(args):
-    request, key, progress_qu, request_qu, response_qu = args
+    request, progress_qu, request_qu, response_qu = args
+
+    key = CONFIG['DarkSkyAPI']
 
     d = request.date
     day = dt.datetime(
@@ -588,6 +602,8 @@ def process_request(args):
         c.loc[-1] = t
 
     # cache our results
+    if pd.isnull(day):
+        raise Exception(str(request))
     c['lat'], c['lon'], c['day'] = lat, lon, day
 
     # ensure any columns not returned from dark sky are still in the df
@@ -595,6 +611,8 @@ def process_request(args):
     for ci in missing_cols:
         c[ci] = np.nan
 
+    if any(c.day.isnull()):
+        raise Exception(str(request))
     request_qu.put(dict(type='put', args=(c,)))
 
     # if monitoring using the progress_bar in utils and a qu is supplied
