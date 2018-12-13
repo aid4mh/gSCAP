@@ -1245,43 +1245,55 @@ def get_clusters_with_context(records, parameters=None, validation_metrics=False
             home_records = None
 
         # check for work records only if the participant works
-        work, wmask = None, []
+        work, wmask, work_records = None, [], None
         if 'working' not in records.columns or len(records.loc[records.working, :]) > 0:
             work, wmask = estimate_work_location(stationary, parameters)
 
             if len(wmask) > 0:
-                # label any other stationary records near the work as work
-                wlat = stationary.loc[wmask, :].lat.median()
-                wlon = stationary.loc[wmask, :].lon.median()
+                valid = True
 
-                for idx, r in stationary.iterrows():
-                    if not 7 < r.ts.hour < 20:
-                        continue
+                # make sure the work location is within a reasonable distance from the home (100 miles, 161km)
+                if home is not None:
+                    work_coord = (work['lat'], work['lon'])
+                    home_coord = (home['lat'], home['lon'])
+                    hw_dist = geo_distance(*work_coord, *home_coord)
 
-                    wdist = geo_distance(wlat, wlon, r.lat, r.lon)
-                    if wdist <= fence and idx not in wmask:
-                        wmask.append(idx)
+                    if hw_dist/1000 > 161:
+                        valid = False
 
-                    elif wdist > fence and idx in wmask:
-                        wmask.remove(idx)
+                if valid:
+                    # label any other stationary records near the work as work
+                    wlat = stationary.loc[wmask, :].lat.median()
+                    wlon = stationary.loc[wmask, :].lon.median()
 
-                work_records = stationary.loc[wmask, :].copy()
-                work_records.cid = 'work'
+                    for idx, r in stationary.iterrows():
+                        if not 7 < r.ts.hour < 20:
+                            continue
 
-                # exclude the work records from future scans
-                a_ = len(stationary)
-                rmask = sorted(set(np.arange(len(stationary))) - set(wmask))
-                stationary = stationary.iloc[rmask, :].reset_index(drop=True)
+                        wdist = geo_distance(wlat, wlon, r.lat, r.lon)
+                        if wdist <= fence and idx not in wmask:
+                            wmask.append(idx)
 
-                # verify we haven't lost any records
-                if not(len(work_records)) + len(stationary) == a_:
-                    print(len(wmask) + len(rmask))
-                    print(len(work_records) + len(stationary), a_)
-                    assert 1 == 0
+                        elif wdist > fence and idx in wmask:
+                            wmask.remove(idx)
+
+                    work_records = stationary.loc[wmask, :].copy()
+                    work_records.cid = 'work'
+
+                    # exclude the work records from future scans
+                    a_ = len(stationary)
+                    rmask = sorted(set(np.arange(len(stationary))) - set(wmask))
+                    stationary = stationary.iloc[rmask, :].reset_index(drop=True)
+
+                    # verify we haven't lost any records
+                    if not(len(work_records)) + len(stationary) == a_:
+                        print(len(wmask) + len(rmask))
+                        print(len(work_records) + len(stationary), a_)
+                        assert 1 == 0
+                else:
+                    work, wmask = None, []
             else:
-                work_records = None
-        else:
-            work_records = None
+                work, wmask = None, []
 
         # scan the remaining records
         gps_records = [
