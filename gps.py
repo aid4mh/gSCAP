@@ -1359,6 +1359,15 @@ def get_clusters_with_context(records, parameters=None, validation_metrics=False
             print('unique cids in clusters: ', ccs)
             assert 1 == 0
 
+        # add distance from home
+        records['distance_from_home'] = np.nan
+        if home is not None:
+            home_coord = (home['lat'], home['lon'])
+            records['distance_from_home'] = [
+                geo_distance(*home_coord, ri.lat, ri.lon)
+                for ri in records.itertuples()
+            ]
+
         return records, clusters
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
