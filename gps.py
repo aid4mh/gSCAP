@@ -16,7 +16,7 @@ import requests
 from sqlite3 import dbapi2 as sqlite
 import sys
 import time
-from urllib3.exceptions import ConnectionError
+from requests.exceptions import ConnectionError
 
 import googlemaps
 import numpy as np
@@ -55,7 +55,6 @@ def synapse_scope():
     syn = synapseclient.Synapse()
     syn.login()
 
-    try:
         yield syn
     except Exception as e:
         raise e
@@ -453,6 +452,9 @@ def parse_gmap_response(c):
                 major_categories='JSONDecodeError'
             )
 
+        if 'error' in c.keys():
+            return dict(rank_order=-1, name=c['error'], categories='none', major_categories='none')
+
         for i, r in enumerate(c.get('results')):
             types = set(r.get('types'))
 
@@ -551,7 +553,7 @@ def parse_gmap_response(c):
 
 # processing ------------------------------------------------------------
 def process_request(args):
-    request, force, progress_qu, request_qu, response_qu = args
+    request, cache_only, force, progress_qu, request_qu, response_qu = args
 
     if not request.valid:
         return request.dataframe
@@ -566,41 +568,39 @@ def process_request(args):
             r = response_qu.get()
 
         if r['response'] is not None:
-            if progress_qu is not None:
-                progress_qu.put(1)
-            else:
-                pass
-
+            update_queue(progress_qu)
             return dict(report=r['response'].dict, hits=1, misses=0)
         else:
             pass
 
     # if we made it this far, we had a cache miss so make the request
-    a, call_complete = 0, False
-    while a < CONNECTION_RESET_ATTEMPTS and not call_complete:
-        try:
-            result = request.call(request)
-            call_complete = True
-        except ConnectionError:
-            a += 1
-            print(f'\n{a} connection attempts failed\n')
-            time.sleep(CONNECTION_WAIT_TIME)
-        except Exception as e:
-            raise e
+    if not cache_only:
+        a, call_complete = 0, False
+        while a < CONNECTION_RESET_ATTEMPTS and not call_complete:
+            try:
+                result = request.call(request)
+                call_complete = True
+            except ConnectionError:
+                a += 1
+                print(f'\n{a} connection attempts failed\n')
+                time.sleep(CONNECTION_WAIT_TIME)
+            except Exception as e:
+                raise e
+    else:
+        update_queue(progress_qu)
+        request.content = json.dumps(dict(
+            error='not found in cache'
+        ))
+        return dict(report=request.dict, hits=0, misses=1)
 
     # cache our results
     request_qu.put(dict(type='put', args=(result,)))
 
-    # if monitoring using the progress_bar in utils and a qu is supplied
-    if progress_qu is not None:
-        progress_qu.put(1)
-    else:
-        pass
-
+    update_queue(progress_qu)
     return dict(report=result.dict, hits=0, misses=1)
 
 
-def request_nearby_places(request, n_jobs=1, force=False, progress_qu=None):
+def request_nearby_places(request, n_jobs=1, cache_only=False, force=False, progress_qu=None):
     if not isinstance(request, list):
         request = [request]
 
@@ -618,13 +618,13 @@ def request_nearby_places(request, n_jobs=1, force=False, progress_qu=None):
 
     if len(request) == 1:
         results = [
-            process_request((request[0], force, progress_qu, request_qu, response_qu))
+            process_request((request[0], cache_only, force, progress_qu, request_qu, response_qu))
         ]
         request_qu.put(dict(type='end'))
     else:
         results = list(pool.map(
              process_request,
-             [(ri, force, progress_qu, request_qu, response_qu) for ri in request]
+             [(ri, cache_only, force, progress_qu, request_qu, response_qu) for ri in request]
         ))
         request_qu.put(dict(type='end'))
 
@@ -651,6 +651,13 @@ def request_nearby_places(request, n_jobs=1, force=False, progress_qu=None):
     results = results.drop(columns='content')
 
     return dict(request=results, hits=hits, misses=misses)
+
+
+def update_queue(progress_qu):
+    if progress_qu is not None:
+        progress_qu.put(1)
+    else:
+        pass
 
 
 def cache_manager(request_qu, response_qu):
@@ -688,7 +695,7 @@ def get_from_cache(r, session):
         (PlaceRequest.source == r.source)
     )).first()
 
-    return  a
+    return a
 
 
 def put_to_cache(r, session):
