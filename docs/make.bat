@@ -5,10 +5,10 @@ pushd %~dp0
 REM Command file for Sphinx documentation
 
 if "%SPHINXBUILD%" == "" (
-	set SPHINXBUILD=docs/sphinx-build
+	set SPHINXBUILD=sphinx-build
 )
-set SOURCEDIR=docs/sphinx-source
-set BUILDDIR=docs/sphinx-build
+set SOURCEDIR=source
+set BUILDDIR=..\..\GSCAP-DOCS
 
 if "%1" == "" goto help
 
