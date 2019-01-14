@@ -2,8 +2,15 @@
 
 """ A collection of data processing scripts """
 
+import datetime as dt
 from multiprocessing import Manager, Queue, Process
+import re
+from pathlib import Path
+import os
 
+import numpy as np
+import pandas as pd
+from scipy.spatial import KDTree
 
 __author__ = 'Luke Waninger'
 __copyright__ = 'Copyright 2018, University of Washington'
@@ -14,6 +21,143 @@ __version__ = '0.0.1'
 __maintainer__ = 'Luke Waninger'
 __email__ = 'luke.waninger@gmail.com'
 __status__ = 'development'
+
+
+"""check for config file"""
+config_file = os.path.join(Path.home(), '.gscapConfig')
+if not os.path.exists(config_file):
+    print('configuration file not found')
+else:
+    with open(config_file, 'r') as f:
+        cf = f.readlines()
+
+    # read each line of the file into a dictionary as a key value pair separated with an '='
+    #  ignore lines beginning with '#'
+    CONFIG = {k: v for k, v in [list(map(lambda x: x.strip(), l.split('='))) for l in cf if l[0] != '#']}
+
+    f.close()
+    del cf, config_file, f
+
+CACHE_DIR = os.path.join(str(Path.home()), '.gscapl')
+if not os.path.exists(CACHE_DIR):
+    os.mkdir(CACHE_DIR)
+
+
+def dpath(x):
+    return os.path.join(CACHE_DIR, x)
+
+
+zname = os.path.join(__file__.replace('utils.py', ''), 'zips.txt')
+zips = pd.read_csv(zname)
+zips = zips.set_index('zipcode')
+ztree = KDTree(zips[['lat', 'lon']].values)
+del zname
+
+
+def as_pydate(date):
+    ismil = True
+
+    if any(s in date for s in ['a.m.', 'AM', 'a. m.']):
+        date = re.sub(r'(a.m.|a. m.|AM)', '', date).strip()
+
+    if any(s in date for s in ['p.m.', 'p. m.', 'PM']):
+        date = re.sub(r'(p.m.|p. m.|PM)', '', date).strip()
+        ismil = False
+
+    if '/' in date:
+        date = re.sub('/', '-', date)
+
+    try:
+        date = dt.datetime.strptime(date, '%d-%m-%y %H:%M')
+
+    except ValueError as e:
+        argstr = ''.join(e.args)
+
+        if ':' in argstr:
+            date = dt.datetime.strptime(date, '%d-%m-%y %H:%M:%S')
+        else:
+            raise e
+
+    date = date + dt.timedelta(hours=12) if not ismil else date
+    return date
+
+
+def isint(x):
+    if x is None:
+        return False
+
+    try:
+        int(float(x))
+        return True
+    except ValueError:
+        return False
+
+
+def isfloat(x):
+    if x is None:
+        return False
+
+    try:
+        float(x)
+        return True
+    except ValueError:
+        return False
+
+
+def dd_from_zip(zipcode):
+    try:
+        lat = zips.loc[zipcode].lat.values[0]
+        lon = zips.loc[zipcode].lon.values[0]
+        return lat, lon
+    except:
+        return 0, 0
+
+
+def zip_from_dd(lat, lon):
+    try:
+        # get closest zip within 7 miles
+        win68miles = zips.loc[
+            (np.round(zips.lat, 0) == np.round(lat, 0)) &
+            (np.round(zips.lon, 0) == np.round(lon, 0))
+        ].dropna()
+
+        win68miles['d'] = [geo_distance(lat, lon, r.lat, r.lon) for r in win68miles.itertuples()]
+        return zips.loc[win68miles.d.idxmin()].index.tolist()[0]
+    except:
+        return -1
+
+
+def tz_from_dd(points):
+    x = ztree.query(points)
+    x = zips.iloc[x[1]].timezone.values
+    return x
+
+
+def geo_distance(lat1, lon1, lat2, lon2):
+    """calculates the geographic distance between coordinates
+    https://www.movable-type.co.uk/scripts/latlong.html
+
+    Args:
+        lat1: (float)
+        lon1: (float)
+        lat2: (float)
+        lon2: (float)
+        metric: (str) in { 'meters', 'km', 'mile' }
+
+    Returns:
+        float representing the distance in meters
+    """
+    r = 6371.0
+    lat1, lon1 = np.radians(lat1), np.radians(lon1)
+    lat2, lon2 = np.radians(lat2), np.radians(lon2)
+
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+
+    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+
+    return r*c*1000
 
 
 def progress_bar(pbar):

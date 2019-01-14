@@ -22,12 +22,16 @@ setuptools.setup(
         'googlemaps==3.0.2',
         'numpy==1.15.2',
         'pandas==0.23.4',
-        'requests==2.19.1',
+        'requests>=2.20.0',
         'scikit-learn==0.19.2',
         'scipy==1.1.0',
         'SQLAlchemy==1.2.12',
         'urllib3==1.23',
         'synapseclient>=1.9.0'
     ],
-    python_requires='>=3.6'
+    python_requires='>=3.6',
+    include_package_data=True,
+    package_data={
+        '': '*.txt'
+    }
 )

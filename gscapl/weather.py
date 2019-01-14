@@ -4,17 +4,12 @@
 
 from collections import namedtuple
 from contextlib import contextmanager
-import datetime as dt
 import multiprocessing as mul
-import os
-from pathlib import Path
 import requests
 from sqlite3 import dbapi2 as sqlite
 import time
 from urllib3.exceptions import NewConnectionError
 
-import numpy as np
-import pandas as pd
 from sqlalchemy import and_
 from sqlalchemy import create_engine
 from sqlalchemy import Column, String, Float, DateTime
@@ -22,7 +17,8 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
-import synapseclient
+
+from gscapl.utils import *
 
 
 __author__ = 'Luke Waninger'
@@ -185,25 +181,6 @@ def session_scope():
         session.close()
 
 
-@contextmanager
-def synapse_scope():
-    syn = synapseclient.Synapse()
-    syn.login()
-
-    try:
-        yield syn
-    except Exception as e:
-        raise e
-    finally:
-        syn.logout()
-
-
-"""verify db cache exists or download if necessary"""
-dpath = lambda x: os.path.join(Path.home(), '.gscapl', x)
-
-if not os.path.exists(dpath('')):
-    os.mkdir(dpath(''))
-
 wcname = 'weather_cache.sqlite'
 engine = create_engine(f'sqlite+pysqlite:///{dpath(wcname)}', module=sqlite)
 Base.metadata.create_all(engine)
@@ -214,40 +191,6 @@ del wcname
 WeatherRequest = namedtuple(
     'WeatherRequest', ['date', 'lat', 'lon', 'zipcode']
 )
-
-"""check for config file"""
-config_file = os.path.join(Path.home(), '.gscapConfig')
-if not os.path.exists(config_file):
-    print('configuration file not found')
-else:
-    with open(config_file, 'r') as f:
-        cf = f.readlines()
-
-    # read each line of the file into a dictionary as a key value pair separated with an '='
-    #  ignore lines beginning with '#'
-    CONFIG = {k: v for k, v in [list(map(lambda x: x.strip(), l.split('='))) for l in cf if l[0] != '#']}
-
-"""only open this zips once, download if unavailable"""
-zname = 'zips.csv'
-if not os.path.exists(dpath(zname)):
-    with synapse_scope() as s:
-        zips = s.tableQuery('SELECT zipcode, lat, lon FROM syn16816780').asDataFrame()
-        zips.to_csv(dpath(zname), index=None)
-
-zips = pd.read_csv(dpath(zname))
-zips = zips.set_index('zipcode')
-del zname
-
-
-def isnum(x):
-    if x is None:
-        return False
-
-    try:
-        float(x)
-        return True
-    except ValueError:
-        return False
 
 
 def cache_manager(request_qu, response_qu):
@@ -367,7 +310,7 @@ def weather_report(
 
         # safely round the results
         for c in r_cols:
-            report[c] = [np.round(vi, 2) if isnum(vi) else np.nan for vi in report[c]]
+            report[c] = [np.round(vi, 2) if isfloat(vi) else np.nan for vi in report[c]]
 
         results = dict(report=report, hits=hits, misses=misses)
 
@@ -376,56 +319,6 @@ def weather_report(
     man.shutdown(); del man
 
     return results[0] if len(results) == 1 else results
-
-
-def geo_distance(lat1, lon1, lat2, lon2):
-    """calculates the geographic distance between coordinates
-    https://www.movable-type.co.uk/scripts/latlong.html
-
-    Args:
-        lat1: (float)
-        lon1: (float)
-        lat2: (float)
-        lon2: (float)
-        metric: (str) in { 'meters', 'km', 'mile' }
-
-    Returns:
-        float representing the distance in meters
-    """
-    r = 6371.0
-    lat1, lon1 = np.radians(lat1), np.radians(lon1)
-    lat2, lon2 = np.radians(lat2), np.radians(lon2)
-
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-
-    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
-    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
-
-    return r*c*1000
-
-
-def dd_from_zip(zipcode):
-    try:
-        lat = zips.loc[zipcode].lat.values[0]
-        lon = zips.loc[zipcode].lon.values[0]
-        return lat, lon
-    except:
-        return 0, 0
-
-
-def zip_from_dd(lat, lon):
-    try:
-        # get closest zip within 7 miles
-        win68miles = zips.loc[
-            (np.round(zips.lat, 0) == np.round(lat, 0)) &
-            (np.round(zips.lon, 0) == np.round(lon, 0))
-        ].dropna()
-
-        win68miles['d'] = [geo_distance(lat, lon, r.lat, r.lon) for r in win68miles.itertuples()]
-        return zips.loc[win68miles.d.idxmin()].index.tolist()[0]
-    except:
-        return -1
 
 
 def get_from_cache(date, lat, lon, session):
@@ -477,7 +370,7 @@ def summarize_report(args):
     r = c.get('report')
 
     def vstats(vals):
-        vals = [v if isnum(v) else np.nan for v in vals]
+        vals = [v if isfloat(v) else np.nan for v in vals]
         valid = any([not pd.isnull(vi) for vi in vals])
 
         try:
@@ -496,7 +389,7 @@ def summarize_report(args):
     dp_med, dp_iqr, dp_mean, dp_std = vstats(r.dewPoint)
     h_med, h_iqr, h_mean, h_std = vstats(r.humidity)
     t_med, t_iqr, t_mean, t_std = vstats(r.temperature)
-    p_sum  = np.sum([v  for v in r.precipIntensity if isnum(v)])
+    p_sum  = np.sum([v  for v in r.precipIntensity if isfloat(v)])
 
     # summary = ' '.join(list(set([str(v) for v in r.icon.values])))
     # summary = ', '.join(
