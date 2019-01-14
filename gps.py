@@ -16,12 +16,13 @@ import requests
 from sqlite3 import dbapi2 as sqlite
 import sys
 import time
-from urllib3.exceptions import ConnectionError
+from requests.exceptions import ConnectionError
 
 import googlemaps
 import numpy as np
 import pandas as pd
 from scipy.stats import mode
+from scipy.spatial import KDTree
 from sklearn.cluster import DBSCAN
 from sqlalchemy import and_, create_engine
 from sqlalchemy import Column, String, Float, DateTime
@@ -52,15 +53,20 @@ Cluster = namedtuple('Cluster', ['lat', 'lon', 'cid'])
 
 @contextmanager
 def synapse_scope():
-    syn = synapseclient.Synapse()
-    syn.login()
-
+    syn = None
     try:
+        syn = synapseclient.Synapse()
+        syn.login()
+
         yield syn
+    except ConnectionError as e:
+        print('WARNING: A connection to Sage could not be made.')
+        yield e
     except Exception as e:
         raise e
     finally:
-        syn.logout()
+        if syn is not None:
+            syn.logout()
 
 
 """verify db cache exists or download if necessary"""
@@ -85,11 +91,12 @@ else:
 zname = 'zips.csv'
 if not os.path.exists(dpath(zname)):
     with synapse_scope() as s:
-        zips = s.tableQuery('SELECT zipcode, lat, lon FROM syn16816780').asDataFrame()
+        zips = s.tableQuery('SELECT zipcode, lat, lon, timezone FROM syn17050200').asDataFrame()
         zips.to_csv(dpath(zname), index=None)
 
 zips = pd.read_csv(dpath(zname))
 zips = zips.set_index('zipcode')
+ztree = KDTree(zips[['lat', 'lon']].values)
 del zname
 
 
@@ -156,6 +163,12 @@ def zip_from_dd(lat, lon):
         return zips.loc[win68miles.d.idxmin()].index.tolist()[0]
     except:
         return -1
+
+
+def tz_from_dd(points):
+    x = ztree.query(points)
+    x = zips.iloc[x[1]].timezone.values
+    return x
 
 
 # --------------------------------------------------------------------------
@@ -275,7 +288,10 @@ class YelpRankBy(Enum):
 
 
 with synapse_scope() as s:
-    YELP_TYPE_MAP = pd.read_csv(s.get('syn17011507').path).set_index('cat')
+    if not isinstance(s, ConnectionError):
+        YELP_TYPE_MAP = pd.read_csv(s.get('syn17011507').path).set_index('cat')
+    else:
+        YELP_TYPE_MAP = None
 
 
 def yelp_call(request):
@@ -400,7 +416,10 @@ class GmapsRankBy(Enum):
 
 
 with synapse_scope() as s:
-    GMAP_TYPE_MAPPINGS = pd.read_csv(s.get('syn17011508').path).set_index('cat')
+    if not isinstance(s, ConnectionError):
+        GMAP_TYPE_MAPPINGS = pd.read_csv(s.get('syn17011508').path).set_index('cat')
+    else:
+        GMAP_TYPE_MAPPINGS = None
 
 
 def gmapping(x):
@@ -452,6 +471,9 @@ def parse_gmap_response(c):
                 categories=c,
                 major_categories='JSONDecodeError'
             )
+
+        if 'error' in c.keys():
+            return dict(rank_order=-1, name=c['error'], categories='none', major_categories='none')
 
         for i, r in enumerate(c.get('results')):
             types = set(r.get('types'))
@@ -551,7 +573,7 @@ def parse_gmap_response(c):
 
 # processing ------------------------------------------------------------
 def process_request(args):
-    request, force, progress_qu, request_qu, response_qu = args
+    request, cache_only, force, progress_qu, request_qu, response_qu = args
 
     if not request.valid:
         return request.dataframe
@@ -566,41 +588,39 @@ def process_request(args):
             r = response_qu.get()
 
         if r['response'] is not None:
-            if progress_qu is not None:
-                progress_qu.put(1)
-            else:
-                pass
-
+            update_queue(progress_qu)
             return dict(report=r['response'].dict, hits=1, misses=0)
         else:
             pass
 
     # if we made it this far, we had a cache miss so make the request
-    a, call_complete = 0, False
-    while a < CONNECTION_RESET_ATTEMPTS and not call_complete:
-        try:
-            result = request.call(request)
-            call_complete = True
-        except ConnectionError:
-            a += 1
-            print(f'\n{a} connection attempts failed\n')
-            time.sleep(CONNECTION_WAIT_TIME)
-        except Exception as e:
-            raise e
+    if not cache_only:
+        a, call_complete = 0, False
+        while a < CONNECTION_RESET_ATTEMPTS and not call_complete:
+            try:
+                result = request.call(request)
+                call_complete = True
+            except ConnectionError:
+                a += 1
+                print(f'\n{a} connection attempts failed\n')
+                time.sleep(CONNECTION_WAIT_TIME)
+            except Exception as e:
+                raise e
+    else:
+        update_queue(progress_qu)
+        request.content = json.dumps(dict(
+            error='not found in cache'
+        ))
+        return dict(report=request.dict, hits=0, misses=1)
 
     # cache our results
     request_qu.put(dict(type='put', args=(result,)))
 
-    # if monitoring using the progress_bar in utils and a qu is supplied
-    if progress_qu is not None:
-        progress_qu.put(1)
-    else:
-        pass
-
+    update_queue(progress_qu)
     return dict(report=result.dict, hits=0, misses=1)
 
 
-def request_nearby_places(request, n_jobs=1, force=False, progress_qu=None):
+def request_nearby_places(request, n_jobs=1, cache_only=False, force=False, progress_qu=None):
     if not isinstance(request, list):
         request = [request]
 
@@ -618,13 +638,13 @@ def request_nearby_places(request, n_jobs=1, force=False, progress_qu=None):
 
     if len(request) == 1:
         results = [
-            process_request((request[0], force, progress_qu, request_qu, response_qu))
+            process_request((request[0], cache_only, force, progress_qu, request_qu, response_qu))
         ]
         request_qu.put(dict(type='end'))
     else:
         results = list(pool.map(
              process_request,
-             [(ri, force, progress_qu, request_qu, response_qu) for ri in request]
+             [(ri, cache_only, force, progress_qu, request_qu, response_qu) for ri in request]
         ))
         request_qu.put(dict(type='end'))
 
@@ -651,6 +671,13 @@ def request_nearby_places(request, n_jobs=1, force=False, progress_qu=None):
     results = results.drop(columns='content')
 
     return dict(request=results, hits=hits, misses=misses)
+
+
+def update_queue(progress_qu):
+    if progress_qu is not None:
+        progress_qu.put(1)
+    else:
+        pass
 
 
 def cache_manager(request_qu, response_qu):
@@ -688,7 +715,7 @@ def get_from_cache(r, session):
         (PlaceRequest.source == r.source)
     )).first()
 
-    return  a
+    return a
 
 
 def put_to_cache(r, session):
@@ -1359,6 +1386,15 @@ def get_clusters_with_context(records, parameters=None, validation_metrics=False
             print('unique cids in clusters: ', ccs)
             assert 1 == 0
 
+        # add distance from home
+        records['distance_from_home'] = np.nan
+        if home is not None:
+            home_coord = (home['lat'], home['lon'])
+            records['distance_from_home'] = [
+                geo_distance(*home_coord, ri.lat, ri.lon)
+                for ri in records.itertuples()
+            ]
+
         return records, clusters
     except Exception as e:
         exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -1367,17 +1403,8 @@ def get_clusters_with_context(records, parameters=None, validation_metrics=False
 
 
 def get_cluster_times(records, clusters):
-    added_yday = False
-
-    if 'yday' not in records.columns:
-        records['yday'] = records.ts.apply(
-            lambda t: f'{t.year}{t.timetuple().tm_yday}'
-        )
-        added_yday = True
-    else:
-        pass
-
-    grouped = records.groupby(['yday'])
+    records['day'] = records.ts.apply(lambda x: x.date())
+    grouped = records.sort_values(by=['ts'], ascending=True).groupby(['day'])
 
     ln_c, ln_d, entries = None, 0, []
     for yday, group in grouped:
@@ -1480,11 +1507,6 @@ def get_cluster_times(records, clusters):
 
         # reset last-night's cluster and day
         ln_c, ln_d = last_c, int(yday)
-
-    if added_yday:
-        records.drop(columns=['yday'], inplace=True)
-    else:
-        pass
 
     entries = pd.DataFrame(entries)
     entries['duration'] = [
