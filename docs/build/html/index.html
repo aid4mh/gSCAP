@@ -1,0 +1,684 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>Welcome to GSCAP’s documentation! &mdash; GSCAP 0 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+
+  
+  
+    
+
+  
+
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+
+  
+  <script src="_static/js/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search">
+          
+
+          
+            <a href="#" class="icon icon-home"> GSCAP
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                latest
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <!-- Local TOC -->
+              <div class="local-toc"><ul>
+<li><a class="reference internal" href="#">Welcome to GSCAP’s documentation!</a></li>
+</ul>
+</div>
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="#">GSCAP</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="#">Docs</a> &raquo;</li>
+        
+      <li>Welcome to GSCAP’s documentation!</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="_sources/index.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="welcome-to-gscap-s-documentation">
+<h1>Welcome to GSCAP’s documentation!<a class="headerlink" href="#welcome-to-gscap-s-documentation" title="Permalink to this headline">¶</a></h1>
+<div class="toctree-wrapper compound">
+</div>
+<span class="target" id="module-gscapl.gps"></span><p>A collection of scripts for processing GPS streams</p>
+<dl class="data">
+<dt id="gscapl.gps.CONNECTION_WAIT_TIME">
+<code class="descclassname">gscapl.gps.</code><code class="descname">CONNECTION_WAIT_TIME</code><em class="property"> = 60</em><a class="headerlink" href="#gscapl.gps.CONNECTION_WAIT_TIME" title="Permalink to this definition">¶</a></dt>
+<dd><p>named tuple used to clarify types used in the scripts below</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="gscapl.gps.GPS">
+<em class="property">class </em><code class="descclassname">gscapl.gps.</code><code class="descname">GPS</code><span class="sig-paren">(</span><em>lat</em>, <em>lon</em>, <em>ts</em><span class="sig-paren">)</span><a class="headerlink" href="#gscapl.gps.GPS" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="method">
+<dt id="gscapl.gps.GPS.__getnewargs__">
+<code class="descname">__getnewargs__</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#gscapl.gps.GPS.__getnewargs__" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return self as a plain tuple.  Used by copy and pickle.</p>
+</dd></dl>
+
+<dl class="staticmethod">
+<dt id="gscapl.gps.GPS.__new__">
+<em class="property">static </em><code class="descname">__new__</code><span class="sig-paren">(</span><em>_cls</em>, <em>lat</em>, <em>lon</em>, <em>ts</em><span class="sig-paren">)</span><a class="headerlink" href="#gscapl.gps.GPS.__new__" title="Permalink to this definition">¶</a></dt>
+<dd><p>Create new instance of GPS(lat, lon, ts)</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="gscapl.gps.GPS.__repr__">
+<code class="descname">__repr__</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#gscapl.gps.GPS.__repr__" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return a nicely formatted representation string</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="gscapl.gps.GPS.lat">
+<code class="descname">lat</code><a class="headerlink" href="#gscapl.gps.GPS.lat" title="Permalink to this definition">¶</a></dt>
+<dd><p>Alias for field number 0</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="gscapl.gps.GPS.lon">
+<code class="descname">lon</code><a class="headerlink" href="#gscapl.gps.GPS.lon" title="Permalink to this definition">¶</a></dt>
+<dd><p>Alias for field number 1</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="gscapl.gps.GPS.ts">
+<code class="descname">ts</code><a class="headerlink" href="#gscapl.gps.GPS.ts" title="Permalink to this definition">¶</a></dt>
+<dd><p>Alias for field number 2</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="gscapl.gps.Cluster">
+<em class="property">class </em><code class="descclassname">gscapl.gps.</code><code class="descname">Cluster</code><span class="sig-paren">(</span><em>lat</em>, <em>lon</em>, <em>cid</em><span class="sig-paren">)</span><a class="headerlink" href="#gscapl.gps.Cluster" title="Permalink to this definition">¶</a></dt>
+<dd><p>SQLAlchemy declarative base for ORM features</p>
+<dl class="method">
+<dt id="gscapl.gps.Cluster.__getnewargs__">
+<code class="descname">__getnewargs__</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#gscapl.gps.Cluster.__getnewargs__" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return self as a plain tuple.  Used by copy and pickle.</p>
+</dd></dl>
+
+<dl class="staticmethod">
+<dt id="gscapl.gps.Cluster.__new__">
+<em class="property">static </em><code class="descname">__new__</code><span class="sig-paren">(</span><em>_cls</em>, <em>lat</em>, <em>lon</em>, <em>cid</em><span class="sig-paren">)</span><a class="headerlink" href="#gscapl.gps.Cluster.__new__" title="Permalink to this definition">¶</a></dt>
+<dd><p>Create new instance of Cluster(lat, lon, cid)</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="gscapl.gps.Cluster.__repr__">
+<code class="descname">__repr__</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#gscapl.gps.Cluster.__repr__" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return a nicely formatted representation string</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="gscapl.gps.Cluster.cid">
+<code class="descname">cid</code><a class="headerlink" href="#gscapl.gps.Cluster.cid" title="Permalink to this definition">¶</a></dt>
+<dd><p>Alias for field number 2</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="gscapl.gps.Cluster.lat">
+<code class="descname">lat</code><a class="headerlink" href="#gscapl.gps.Cluster.lat" title="Permalink to this definition">¶</a></dt>
+<dd><p>Alias for field number 0</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="gscapl.gps.Cluster.lon">
+<code class="descname">lon</code><a class="headerlink" href="#gscapl.gps.Cluster.lon" title="Permalink to this definition">¶</a></dt>
+<dd><p>Alias for field number 1</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="gscapl.gps.PlaceRequest">
+<em class="property">class </em><code class="descclassname">gscapl.gps.</code><code class="descname">PlaceRequest</code><span class="sig-paren">(</span><em>lat=None</em>, <em>lon=None</em>, <em>radius=None</em>, <em>rankby=None</em>, <em>source=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/gscapl/gps.html#PlaceRequest"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.gps.PlaceRequest" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="class">
+<dt id="gscapl.gps.YelpRankBy">
+<em class="property">class </em><code class="descclassname">gscapl.gps.</code><code class="descname">YelpRankBy</code><a class="reference internal" href="_modules/gscapl/gps.html#YelpRankBy"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.gps.YelpRankBy" title="Permalink to this definition">¶</a></dt>
+<dd><p>An enumeration.</p>
+</dd></dl>
+
+<dl class="data">
+<dt id="gscapl.gps.IGNORED_PLACE_TYPES">
+<code class="descclassname">gscapl.gps.</code><code class="descname">IGNORED_PLACE_TYPES</code><em class="property"> = ['administrative_area_level', 'administrative_area_level_1', 'administrative_area_level_2', 'administrative_area_level_3', 'administrative_area_level_4', 'administrative_area_level_5', 'country', 'route', 'street_address', 'street_number', 'sublocality', 'sublocality_level_5', 'sublocality_level_4', 'sublocality_level_3', 'sublocality_level_2', 'sublocality_level_1', 'subpremise', 'locality', 'political']</em><a class="headerlink" href="#gscapl.gps.IGNORED_PLACE_TYPES" title="Permalink to this definition">¶</a></dt>
+<dd><p>Google Maps place fields to request
+<a class="reference external" href="https://developers.google.com/places/web-service/details">https://developers.google.com/places/web-service/details</a></p>
+</dd></dl>
+
+<dl class="class">
+<dt id="gscapl.gps.GmapsRankBy">
+<em class="property">class </em><code class="descclassname">gscapl.gps.</code><code class="descname">GmapsRankBy</code><a class="reference internal" href="_modules/gscapl/gps.html#GmapsRankBy"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.gps.GmapsRankBy" title="Permalink to this definition">¶</a></dt>
+<dd><p>An enumeration.</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="gscapl.gps.ApiSource">
+<em class="property">class </em><code class="descclassname">gscapl.gps.</code><code class="descname">ApiSource</code><a class="reference internal" href="_modules/gscapl/gps.html#ApiSource"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.gps.ApiSource" title="Permalink to this definition">¶</a></dt>
+<dd><p>An enumeration.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="gscapl.gps.discrete_velocity">
+<code class="descclassname">gscapl.gps.</code><code class="descname">discrete_velocity</code><span class="sig-paren">(</span><em>coordinate_a</em>, <em>coordinate_b</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/gscapl/gps.html#discrete_velocity"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.gps.discrete_velocity" title="Permalink to this definition">¶</a></dt>
+<dd><p>converts the velocity between two points into a discrete value</p>
+<p class="rubric">Notes</p>
+<p>For a more detailed explanation see notebooks/determining_transportation_speeds.ipynb
+paper: <a class="reference external" href="https://peerj.com/articles/4640/">https://peerj.com/articles/4640/</a>
+data: <a class="reference external" href="https://figshare.com/articles/A_public_data_set_of_overground_and_treadmill_walking_kinematics_and_kinetics_of_healthy_individuals/5722711">https://figshare.com/articles/A_public_data_set_of_overground_and_treadmill_walking_kinematics_and_kinetics_of_healthy_individuals/5722711</a></p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>coordinate_a</strong> – (float, float, dt.datetime) lat, lon, timestamp</li>
+<li><strong>coordinate_b</strong> – (float, float, dt.datetime) lat, lon, timestamp</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first"><p>{
+‘displacement’: float,
+‘time_delta’: int,
+‘mps’: float,
+‘binning’: str
+}</p>
+</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><p class="first">dictionary</p>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Raises:</th><td class="field-body"><p class="first last">ValueError if supplied tuples are incorrect</p>
+</td>
+</tr>
+</tbody>
+</table>
+<p class="rubric">Notes</p>
+<p>available bins: { ‘stationary’, ‘walking’, ‘active’, ‘powered_vehicle’, ‘high_speed_transportation’, ‘anomaly’ }</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="gscapl.gps.estimate_home_location">
+<code class="descclassname">gscapl.gps.</code><code class="descname">estimate_home_location</code><span class="sig-paren">(</span><em>records</em>, <em>parameters=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/gscapl/gps.html#estimate_home_location"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.gps.estimate_home_location" title="Permalink to this definition">¶</a></dt>
+<dd><p>calculate approximate home location from GPS records</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>records</strong> – (DataFrame)</li>
+<li><strong>parameters</strong> – (dict)</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first">float, lon: float }</p>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Return type:</th><td class="field-body"><p class="first last">{ lat</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="gscapl.gps.estimate_work_location">
+<code class="descclassname">gscapl.gps.</code><code class="descname">estimate_work_location</code><span class="sig-paren">(</span><em>records</em>, <em>parameters=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/gscapl/gps.html#estimate_work_location"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.gps.estimate_work_location" title="Permalink to this definition">¶</a></dt>
+<dd><p>calculate approximate work location from GPS records</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>records</strong> – (DataFrame)</li>
+<li><strong>parameters</strong></li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">Cluster, [int]</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="gscapl.gps.geo_pairwise_distances">
+<code class="descclassname">gscapl.gps.</code><code class="descname">geo_pairwise_distances</code><span class="sig-paren">(</span><em>x</em>, <em>as_array=True</em>, <em>n_jobs=1</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/gscapl/gps.html#geo_pairwise_distances"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.gps.geo_pairwise_distances" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>x</strong> – [(float, float),]</li>
+<li><strong>n_jobs</strong> – number of cores to use, -1 for all</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">[float,]</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="gscapl.gps.gps_dbscan">
+<code class="descclassname">gscapl.gps.</code><code class="descname">gps_dbscan</code><span class="sig-paren">(</span><em>gps_records</em>, <em>parameters=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/gscapl/gps.html#gps_dbscan"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.gps.gps_dbscan" title="Permalink to this definition">¶</a></dt>
+<dd><p>perform DBSCAN and return cluster with most number of components
+<a class="reference external" href="http://scikit-learn.org/stable/modules/generated/sklearn.cluster.DBSCAN.html">http://scikit-learn.org/stable/modules/generated/sklearn.cluster.DBSCAN.html</a></p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>gps_records</strong> – [GPS] | pd.DataFrame w/lat, lon, ts as columns</li>
+<li><strong>parameters</strong> – (dict) optional parameters for DBSCAN. See above</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">labels, [dict(lat, lon, count, records)]
+ordered by number of points contained in each cluster</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="gscapl.gps.impute_between">
+<code class="descclassname">gscapl.gps.</code><code class="descname">impute_between</code><span class="sig-paren">(</span><em>coordinate_a</em>, <em>coordinate_b</em>, <em>freq</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/gscapl/gps.html#impute_between"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.gps.impute_between" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>coordinate_a</strong></li>
+<li><strong>coordinate_b</strong></li>
+<li><strong>freq</strong></li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Returns:</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="gscapl.gps.impute_stationary_coordinates">
+<code class="descclassname">gscapl.gps.</code><code class="descname">impute_stationary_coordinates</code><span class="sig-paren">(</span><em>records</em>, <em>freq='10Min'</em>, <em>metrics=True</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/gscapl/gps.html#impute_stationary_coordinates"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.gps.impute_stationary_coordinates" title="Permalink to this definition">¶</a></dt>
+<dd><p>resample a stream of <cite>gps_records</cite> boosting the number of points
+spent at stationary positions. This method is used due to to how the
+data were collected. GPS coordinates were recorded at either 15min
+intervals or when the user moved 100 meters, whichever came first.
+For this reason, the data is collected in a biased manner. Using this
+function, we even the distribution across semantically binned velocities
+making density based clustering algorithms more effective.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>records</strong> – (DataFrame)</li>
+<li><strong>freq</strong> – (str)</li>
+<li><strong>metrics</strong> – (bool)</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">[GPS]</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<span class="target" id="module-gscapl.weather"></span><p>A collection of scripts for processing weather data</p>
+<dl class="data">
+<dt id="gscapl.weather.DARK_SKY_URL">
+<code class="descclassname">gscapl.weather.</code><code class="descname">DARK_SKY_URL</code><em class="property"> = 'https://api.darksky.net/forecast'</em><a class="headerlink" href="#gscapl.weather.DARK_SKY_URL" title="Permalink to this definition">¶</a></dt>
+<dd><p>How many times to retry a network timeout
+and how many seconds to wait between each</p>
+</dd></dl>
+
+<dl class="data">
+<dt id="gscapl.weather.CONNECTION_WAIT_TIME">
+<code class="descclassname">gscapl.weather.</code><code class="descname">CONNECTION_WAIT_TIME</code><em class="property"> = 60</em><a class="headerlink" href="#gscapl.weather.CONNECTION_WAIT_TIME" title="Permalink to this definition">¶</a></dt>
+<dd><p>Dark Sky hourly call columns</p>
+</dd></dl>
+
+<dl class="data">
+<dt id="gscapl.weather.HOURLY_COLS">
+<code class="descclassname">gscapl.weather.</code><code class="descname">HOURLY_COLS</code><em class="property"> = ['time', 'summary', 'icon', 'precipIntensity', 'precipProbability', 'temperature', 'apparentTemperature', 'dewPoint', 'humidity', 'pressure', 'pressureError', 'windSpeed', 'windBearing', 'cloudCover', 'cloudCoverError', 'uvIndex', 'visibility', 'lat', 'lon', 'day', 'hour', 'ozone', 'precipAccumulation', 'precipType', 'temperatureError', 'windBearingError', 'windGust', 'windSpeedError']</em><a class="headerlink" href="#gscapl.weather.HOURLY_COLS" title="Permalink to this definition">¶</a></dt>
+<dd><p>SQLAlchemy declarative base for ORM features</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="gscapl.weather.HourlyWeatherReport">
+<em class="property">class </em><code class="descclassname">gscapl.weather.</code><code class="descname">HourlyWeatherReport</code><span class="sig-paren">(</span><em>**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/gscapl/weather.html#HourlyWeatherReport"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.weather.HourlyWeatherReport" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="class">
+<dt id="gscapl.weather.WeatherRequest">
+<em class="property">class </em><code class="descclassname">gscapl.weather.</code><code class="descname">WeatherRequest</code><span class="sig-paren">(</span><em>date</em>, <em>lat</em>, <em>lon</em>, <em>zipcode</em><span class="sig-paren">)</span><a class="headerlink" href="#gscapl.weather.WeatherRequest" title="Permalink to this definition">¶</a></dt>
+<dd><dl class="method">
+<dt id="gscapl.weather.WeatherRequest.__getnewargs__">
+<code class="descname">__getnewargs__</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#gscapl.weather.WeatherRequest.__getnewargs__" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return self as a plain tuple.  Used by copy and pickle.</p>
+</dd></dl>
+
+<dl class="staticmethod">
+<dt id="gscapl.weather.WeatherRequest.__new__">
+<em class="property">static </em><code class="descname">__new__</code><span class="sig-paren">(</span><em>_cls</em>, <em>date</em>, <em>lat</em>, <em>lon</em>, <em>zipcode</em><span class="sig-paren">)</span><a class="headerlink" href="#gscapl.weather.WeatherRequest.__new__" title="Permalink to this definition">¶</a></dt>
+<dd><p>Create new instance of WeatherRequest(date, lat, lon, zipcode)</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="gscapl.weather.WeatherRequest.__repr__">
+<code class="descname">__repr__</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#gscapl.weather.WeatherRequest.__repr__" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return a nicely formatted representation string</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="gscapl.weather.WeatherRequest.date">
+<code class="descname">date</code><a class="headerlink" href="#gscapl.weather.WeatherRequest.date" title="Permalink to this definition">¶</a></dt>
+<dd><p>Alias for field number 0</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="gscapl.weather.WeatherRequest.lat">
+<code class="descname">lat</code><a class="headerlink" href="#gscapl.weather.WeatherRequest.lat" title="Permalink to this definition">¶</a></dt>
+<dd><p>Alias for field number 1</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="gscapl.weather.WeatherRequest.lon">
+<code class="descname">lon</code><a class="headerlink" href="#gscapl.weather.WeatherRequest.lon" title="Permalink to this definition">¶</a></dt>
+<dd><p>Alias for field number 2</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="gscapl.weather.WeatherRequest.zipcode">
+<code class="descname">zipcode</code><a class="headerlink" href="#gscapl.weather.WeatherRequest.zipcode" title="Permalink to this definition">¶</a></dt>
+<dd><p>Alias for field number 3</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="function">
+<dt id="gscapl.weather.weather_report">
+<code class="descclassname">gscapl.weather.</code><code class="descname">weather_report</code><span class="sig-paren">(</span><em>request</em>, <em>summarize='daily'</em>, <em>n_jobs=1</em>, <em>progress_qu=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/gscapl/weather.html#weather_report"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.weather.weather_report" title="Permalink to this definition">¶</a></dt>
+<dd><p>retrieve a weather report for specific lat, lon, and day</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>request</strong> – (weather.WeatherRequest)</li>
+<li><strong>summarize</strong> – (str) {‘daily’, ‘weekly’}</li>
+<li><strong>n_jobs</strong> – (int) number of procs to use (-1 for all)</li>
+<li><strong>key</strong> – (str)</li>
+<li><strong>progress_qu</strong> – (multiprocessing.Queue)</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Raises:</th><td class="field-body"><ul class="first simple">
+<li>ValueError if lat/lon is outside of valid range</li>
+<li>ValueError if frequency is not in { ‘hourly’, ‘daily’ }</li>
+</ul>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">pd.DataFrame containing hourly (24 rows) or daily (1 row) data else None</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="gscapl.weather.summarize_report">
+<code class="descclassname">gscapl.weather.</code><code class="descname">summarize_report</code><span class="sig-paren">(</span><em>args</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/gscapl/weather.html#summarize_report"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.weather.summarize_report" title="Permalink to this definition">¶</a></dt>
+<dd><table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>args</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Returns:</p>
+</dd></dl>
+
+<span class="target" id="module-gscapl.utils"></span><p>A collection of data processing scripts</p>
+<dl class="function">
+<dt id="gscapl.utils.geo_distance">
+<code class="descclassname">gscapl.utils.</code><code class="descname">geo_distance</code><span class="sig-paren">(</span><em>lat1</em>, <em>lon1</em>, <em>lat2</em>, <em>lon2</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/gscapl/utils.html#geo_distance"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.utils.geo_distance" title="Permalink to this definition">¶</a></dt>
+<dd><p>calculates the geographic distance between coordinates
+<a class="reference external" href="https://www.movable-type.co.uk/scripts/latlong.html">https://www.movable-type.co.uk/scripts/latlong.html</a></p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>lat1</strong> – (float)</li>
+<li><strong>lon1</strong> – (float)</li>
+<li><strong>lat2</strong> – (float)</li>
+<li><strong>lon2</strong> – (float)</li>
+<li><strong>metric</strong> – (str) in { ‘meters’, ‘km’, ‘mile’ }</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">float representing the distance in meters</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="gscapl.utils.progress_bar">
+<code class="descclassname">gscapl.utils.</code><code class="descname">progress_bar</code><span class="sig-paren">(</span><em>pbar</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/gscapl/utils.html#progress_bar"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.utils.progress_bar" title="Permalink to this definition">¶</a></dt>
+<dd><p>progress bar to track parallel events
+:Parameters: * <strong>total</strong> – (int) total number of tasks to complete</p>
+<blockquote>
+<div><ul class="simple">
+<li><strong>desc</strong> – (str) optional title to progress bar</li>
+</ul>
+</div></blockquote>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">(Process, Queue)</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="gscapl.utils.pcmap">
+<code class="descclassname">gscapl.utils.</code><code class="descname">pcmap</code><span class="sig-paren">(</span><em>func</em>, <em>vals</em>, <em>n_cons</em>, <em>pbar=False</em>, <em>**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/gscapl/utils.html#pcmap"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.utils.pcmap" title="Permalink to this definition">¶</a></dt>
+<dd><p>parallel mapping function into producer-consumer pattern
+:Parameters: * <strong>func</strong> – (Function) function to apply</p>
+<blockquote>
+<div><ul class="simple">
+<li><strong>vals</strong> – [Object] values to apply</li>
+<li><strong>n_cons</strong> – (int) number of consumers to start</li>
+<li><strong>pbar</strong> – (bool)</li>
+</ul>
+</div></blockquote>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body">[Object] list of mapped function return values</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2018, Luke Waninger, Abhishek Pratap
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+        <script type="text/javascript" src="_static/jquery.js"></script>
+        <script type="text/javascript" src="_static/underscore.js"></script>
+        <script type="text/javascript" src="_static/doctools.js"></script>
+        <script type="text/javascript" src="_static/language_data.js"></script>
+    
+
+  
+
+  <script type="text/javascript" src="_static/js/theme.js"></script>
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

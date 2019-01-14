@@ -8,12 +8,6 @@ data
 *.xml
 *.pkl
 
-# documentation
-docs/sphinx-source/_static
-docs/sphinx-source/_templates
-docs/sphinx-build/doctrees
-
-
 # secrets
 
 
