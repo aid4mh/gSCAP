@@ -22,3 +22,8 @@ docs/_build/doctrees
 .ipynb_checkpoints
 __pycache__
 .pytest_cache
+
+
+# deployment
+build
+dist
