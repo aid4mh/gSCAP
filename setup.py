@@ -5,13 +5,13 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="gscapl",
-    version="0.0.0.3",
+    version="0.0.0.5",
     author="Luke Waninger",
     author_email="luke.waninger@gmail.com",
     description="A package for geospatial context analysis",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/lukeWaninger/gscapl",
+    url="https://github.com/lukeWaninger/GSCAP",
     packages=setuptools.find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3.6",
