@@ -22,6 +22,7 @@ import googlemaps
 import numpy as np
 import pandas as pd
 from scipy.stats import mode
+from scipy.spatial import KDTree
 from sklearn.cluster import DBSCAN
 from sqlalchemy import and_, create_engine
 from sqlalchemy import Column, String, Float, DateTime
@@ -52,14 +53,20 @@ Cluster = namedtuple('Cluster', ['lat', 'lon', 'cid'])
 
 @contextmanager
 def synapse_scope():
-    syn = synapseclient.Synapse()
-    syn.login()
+    syn = None
+    try:
+        syn = synapseclient.Synapse()
+        syn.login()
 
         yield syn
+    except ConnectionError as e:
+        print('WARNING: A connection to Sage could not be made.')
+        yield e
     except Exception as e:
         raise e
     finally:
-        syn.logout()
+        if syn is not None:
+            syn.logout()
 
 
 """verify db cache exists or download if necessary"""
@@ -84,11 +91,12 @@ else:
 zname = 'zips.csv'
 if not os.path.exists(dpath(zname)):
     with synapse_scope() as s:
-        zips = s.tableQuery('SELECT zipcode, lat, lon FROM syn16816780').asDataFrame()
+        zips = s.tableQuery('SELECT zipcode, lat, lon, timezone FROM syn17050200').asDataFrame()
         zips.to_csv(dpath(zname), index=None)
 
 zips = pd.read_csv(dpath(zname))
 zips = zips.set_index('zipcode')
+ztree = KDTree(zips[['lat', 'lon']].values)
 del zname
 
 
@@ -155,6 +163,12 @@ def zip_from_dd(lat, lon):
         return zips.loc[win68miles.d.idxmin()].index.tolist()[0]
     except:
         return -1
+
+
+def tz_from_dd(points):
+    x = ztree.query(points)
+    x = zips.iloc[x[1]].timezone.values
+    return x
 
 
 # --------------------------------------------------------------------------
@@ -274,7 +288,10 @@ class YelpRankBy(Enum):
 
 
 with synapse_scope() as s:
-    YELP_TYPE_MAP = pd.read_csv(s.get('syn17011507').path).set_index('cat')
+    if not isinstance(s, ConnectionError):
+        YELP_TYPE_MAP = pd.read_csv(s.get('syn17011507').path).set_index('cat')
+    else:
+        YELP_TYPE_MAP = None
 
 
 def yelp_call(request):
@@ -399,7 +416,10 @@ class GmapsRankBy(Enum):
 
 
 with synapse_scope() as s:
-    GMAP_TYPE_MAPPINGS = pd.read_csv(s.get('syn17011508').path).set_index('cat')
+    if not isinstance(s, ConnectionError):
+        GMAP_TYPE_MAPPINGS = pd.read_csv(s.get('syn17011508').path).set_index('cat')
+    else:
+        GMAP_TYPE_MAPPINGS = None
 
 
 def gmapping(x):
@@ -1383,17 +1403,8 @@ def get_clusters_with_context(records, parameters=None, validation_metrics=False
 
 
 def get_cluster_times(records, clusters):
-    added_yday = False
-
-    if 'yday' not in records.columns:
-        records['yday'] = records.ts.apply(
-            lambda t: f'{t.year}{t.timetuple().tm_yday}'
-        )
-        added_yday = True
-    else:
-        pass
-
-    grouped = records.groupby(['yday'])
+    records['day'] = records.ts.apply(lambda x: x.date())
+    grouped = records.sort_values(by=['ts'], ascending=True).groupby(['day'])
 
     ln_c, ln_d, entries = None, 0, []
     for yday, group in grouped:
@@ -1496,11 +1507,6 @@ def get_cluster_times(records, clusters):
 
         # reset last-night's cluster and day
         ln_c, ln_d = last_c, int(yday)
-
-    if added_yday:
-        records.drop(columns=['yday'], inplace=True)
-    else:
-        pass
 
     entries = pd.DataFrame(entries)
     entries['duration'] = [
