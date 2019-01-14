@@ -2,7 +2,8 @@
 
 """ A collection of scripts for processing GPS streams"""
 
-from collections import *
+from collections import namedtuple
+from contextlib import contextmanager
 from enum import Enum
 import json
 import multiprocessing as mul
@@ -154,7 +155,7 @@ del gcname
 
 # Yelp -----------------------------------------------------------------
 YELP_TYPE_MAP = pd.read_csv(
-    os.path.join(__file__.replace('gps.py', ''), 'data', 'yelp_mappings.csv')
+    os.path.join(__file__.replace('gps.py', ''), 'yelp_mappings.txt')
 ).set_index('cat')
 
 
@@ -282,7 +283,7 @@ IGNORED_PLACE_TYPES = [
 PLACE_QUERY_FIELDS = ['name', 'type', 'rating', 'price_level', 'geometry']
 
 GMAP_TYPE_MAPPINGS = pd.read_csv(
-    os.path.join(__file__.replace('gps.py', ''), 'data', 'gmap_mappings.csv')
+    os.path.join(__file__.replace('gps.py', ''), 'gmap_mappings.txt')
 ).set_index('cat')
 
 

@@ -3,6 +3,7 @@
 """ A collection of scripts for processing weather data """
 
 from collections import namedtuple
+from contextlib import contextmanager
 import multiprocessing as mul
 import requests
 from sqlite3 import dbapi2 as sqlite

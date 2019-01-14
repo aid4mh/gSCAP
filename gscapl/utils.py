@@ -47,7 +47,7 @@ def dpath(x):
     return os.path.join(CACHE_DIR, x)
 
 
-zname = os.path.join(__file__.replace('utils.py', ''), 'data', 'zips.csv')
+zname = os.path.join(__file__.replace('utils.py', ''), 'zips.txt')
 zips = pd.read_csv(zname)
 zips = zips.set_index('zipcode')
 ztree = KDTree(zips[['lat', 'lon']].values)
