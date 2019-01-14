@@ -199,7 +199,7 @@ def synapse_scope():
 
 
 """verify db cache exists or download if necessary"""
-dpath = lambda x: os.path.join(Path.home(), '.gscap', x)
+dpath = lambda x: os.path.join(Path.home(), '.gscapl', x)
 
 if not os.path.exists(dpath('')):
     os.mkdir(dpath(''))
