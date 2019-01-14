@@ -9,9 +9,9 @@ data
 *.pkl
 
 # documentation
-docs/_static
-docs/_templates
-docs/_build/doctrees
+docs/sphinx-source/_static
+docs/sphinx-source/_templates
+docs/sphinx-build/doctrees
 
 
 # secrets
