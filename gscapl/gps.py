@@ -3,14 +3,9 @@
 """ A collection of scripts for processing GPS streams"""
 
 from collections import *
-from contextlib import contextmanager
-import datetime as dt
 from enum import Enum
 import json
 import multiprocessing as mul
-import os
-from pathlib import Path
-import re
 import requests
 from sqlite3 import dbapi2 as sqlite
 import sys
@@ -18,17 +13,15 @@ import time
 from requests.exceptions import ConnectionError
 
 import googlemaps
-import numpy as np
-import pandas as pd
 from scipy.stats import mode
-from scipy.spatial import KDTree
 from sklearn.cluster import DBSCAN
 from sqlalchemy import and_, create_engine
 from sqlalchemy import Column, String, Float, DateTime
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
-import synapseclient
+
+from gscapl.utils import *
 
 __author__ = 'Luke Waninger'
 __copyright__ = 'Copyright 2018, University of Washington'
@@ -40,6 +33,7 @@ __maintainer__ = 'Luke Waninger'
 __email__ = 'luke.waninger@gmail.com'
 __status__ = 'development'
 
+
 """How many times to retry a network timeout 
 and how many seconds to wait between each """
 CONNECTION_RESET_ATTEMPTS = 99
@@ -48,126 +42,6 @@ CONNECTION_WAIT_TIME = 60
 """named tuple used to clarify types used in the scripts below"""
 GPS = namedtuple('GPS', ['lat', 'lon', 'ts'])
 Cluster = namedtuple('Cluster', ['lat', 'lon', 'cid'])
-
-
-@contextmanager
-def synapse_scope():
-    syn = None
-    try:
-        syn = synapseclient.Synapse()
-        syn.login()
-
-        yield syn
-    except ConnectionError as e:
-        print('WARNING: A connection to Sage could not be made.')
-        yield e
-    except Exception as e:
-        raise e
-    finally:
-        if syn is not None:
-            syn.logout()
-
-
-"""verify db cache exists or download if necessary"""
-dpath = lambda x: os.path.join(Path.home(), '.gscapl', x)
-
-if not os.path.exists(dpath('')):
-    os.mkdir(dpath(''))
-
-"""check for config file"""
-config_file = os.path.join(Path.home(), '.gscapConfig')
-if not os.path.exists(config_file):
-    print('configuration file not found')
-else:
-    with open(config_file, 'r') as f:
-        cf = f.readlines()
-
-    # read each line of the file into a dictionary as a key value pair separated with an '='
-    #  ignore lines beginning with '#'
-    CONFIG = {k: v for k, v in [list(map(lambda x: x.strip(), l.split('='))) for l in cf if l[0] != '#']}
-
-"""only open this zips once, download if unavailable"""
-zname = 'zips.csv'
-if not os.path.exists(dpath(zname)):
-    with synapse_scope() as s:
-        zips = s.tableQuery('SELECT zipcode, lat, lon, timezone FROM syn17050200').asDataFrame()
-        zips.to_csv(dpath(zname), index=None)
-
-zips = pd.read_csv(dpath(zname))
-zips = zips.set_index('zipcode')
-ztree = KDTree(zips[['lat', 'lon']].values)
-del zname
-
-
-# --------------------------------------------------------------------------
-# Misc stuff
-# --------------------------------------------------------------------------
-def as_pydate(date):
-    ismil = True
-
-    if any(s in date for s in ['a.m.', 'AM', 'a. m.']):
-        date = re.sub(r'(a.m.|a. m.|AM)', '', date).strip()
-
-    if any(s in date for s in ['p.m.', 'p. m.', 'PM']):
-        date = re.sub(r'(p.m.|p. m.|PM)', '', date).strip()
-        ismil = False
-
-    if '/' in date:
-        date = re.sub('/', '-', date)
-
-    try:
-        date = dt.datetime.strptime(date, '%d-%m-%y %H:%M')
-
-    except ValueError as e:
-        argstr = ''.join(e.args)
-
-        if ':' in argstr:
-            date = dt.datetime.strptime(date, '%d-%m-%y %H:%M:%S')
-        else:
-            raise e
-
-    date = date + dt.timedelta(hours=12) if not ismil else date
-    return date
-
-
-def isnum(x):
-    if x is None:
-        return False
-
-    try:
-        float(x)
-        return True
-    except ValueError:
-        return False
-
-
-def dd_from_zip(zipcode):
-    try:
-        lat = zips.loc[zipcode].lat.values[0]
-        lon = zips.loc[zipcode].lon.values[0]
-        return lat, lon
-    except:
-        return 0, 0
-
-
-def zip_from_dd(lat, lon):
-    try:
-        # get closest zip within 7 miles
-        win68miles = zips.loc[
-            (np.round(zips.lat, 0) == np.round(lat, 0)) &
-            (np.round(zips.lon, 0) == np.round(lon, 0))
-        ].dropna()
-
-        win68miles['d'] = [geo_distance(lat, lon, r.lat, r.lon) for r in win68miles.itertuples()]
-        return zips.loc[win68miles.d.idxmin()].index.tolist()[0]
-    except:
-        return -1
-
-
-def tz_from_dd(points):
-    x = ztree.query(points)
-    x = zips.iloc[x[1]].timezone.values
-    return x
 
 
 # --------------------------------------------------------------------------
@@ -206,8 +80,8 @@ class PlaceRequest(Base):
     content = Column(String)
 
     def __init__(self, lat=None, lon=None, radius=None, rankby=None, source=None):
-        self.lat = np.round(lat, 5) if isnum(lat) else np.nan
-        self.lon = np.round(lon, 5) if isnum(lon) else np.nan
+        self.lat = np.round(lat, 5) if isfloat(lat) else np.nan
+        self.lon = np.round(lon, 5) if isfloat(lon) else np.nan
         self.valid = self.__verify_location()
 
         self.radius = radius
@@ -279,18 +153,16 @@ del gcname
 
 
 # Yelp -----------------------------------------------------------------
+YELP_TYPE_MAP = pd.read_csv(
+    os.path.join(__file__.replace('gps.py', ''), 'data', 'yelp_mappings.csv')
+).set_index('cat')
+
+
 class YelpRankBy(Enum):
     BEST_MATCH = 'best_match'
     RATING = 'rating'
     REVIEW_COUNT = 'review_count'
     DISTANCE = 'distance'
-
-
-with synapse_scope() as s:
-    if not isinstance(s, ConnectionError):
-        YELP_TYPE_MAP = pd.read_csv(s.get('syn17011507').path).set_index('cat')
-    else:
-        YELP_TYPE_MAP = None
 
 
 def yelp_call(request):
@@ -409,16 +281,13 @@ IGNORED_PLACE_TYPES = [
  """
 PLACE_QUERY_FIELDS = ['name', 'type', 'rating', 'price_level', 'geometry']
 
+GMAP_TYPE_MAPPINGS = pd.read_csv(
+    os.path.join(__file__.replace('gps.py', ''), 'data', 'gmap_mappings.csv')
+).set_index('cat')
+
 
 class GmapsRankBy(Enum):
     PROMINENCE = 'prominence'
-
-
-with synapse_scope() as s:
-    if not isinstance(s, ConnectionError):
-        GMAP_TYPE_MAPPINGS = pd.read_csv(s.get('syn17011508').path).set_index('cat')
-    else:
-        GMAP_TYPE_MAPPINGS = None
 
 
 def gmapping(x):
@@ -762,7 +631,7 @@ class ApiSource(Enum):
 
 
 # --------------------------------------------------------------------------
-# GPS and clustering
+# GPS and clustering and metrics
 # --------------------------------------------------------------------------
 def cluster_metrics(clusters, entries):
     if 'cnt' in clusters.columns:
@@ -1101,6 +970,9 @@ def estimate_work_location(records, parameters=None):
 
 
 def extract_cluster_centers(gps_records, dbscan):
+    if isinstance(gps_records, pd.DataFrame):
+        gps_records = records_to_gpsr(gps_records)
+
     # extract cluster labels, bincount, and select the top cluster
     clusters = np.unique(dbscan.labels_)
 
@@ -1163,33 +1035,6 @@ def extract_cluster_centers(gps_records, dbscan):
         ))
 
     return centers
-
-
-def geo_distance(lat1, lon1, lat2, lon2):
-    """calculates the geographic distance between coordinates
-    https://www.movable-type.co.uk/scripts/latlong.html
-
-    Args:
-        lat1: (float)
-        lon1: (float)
-        lat2: (float)
-        lon2: (float)
-        metric: (str) in { 'meters', 'km', 'mile' }
-
-    Returns:
-        float representing the distance in meters
-    """
-    r = 6371.0
-    lat1, lon1 = np.radians(lat1), np.radians(lon1)
-    lat2, lon2 = np.radians(lat2), np.radians(lon2)
-
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-
-    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
-    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
-
-    return r*c*1000
 
 
 def geo_pairwise_distances(x, as_array=True, n_jobs=1):
@@ -1557,7 +1402,7 @@ def get_cluster_times(records, clusters):
     return entries
 
 
-def get_daily_metrics(records, entries):
+def get_daily_metrics(records):
     # location variance - https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5571235/
     def location_variance(x):
         a = np.std(x.lat) + np.std(x.lon)
@@ -1700,7 +1545,7 @@ def get_daily_metrics(records, entries):
 
 def get_next_phase_clusters(records, clusters, params, min_distance=100, validation_metrics=False):
     def getint(ri):
-        return int(ri[1:]) if isnum(ri[1:]) else None
+        return int(ri[1:]) if isint(ri[1:]) else None
 
     # add an exclusion mask to identify which points to perform the clustering
     records['exmask'] = ~((records.cid != 'xNot') | (records.binning != 'stationary'))
@@ -1770,14 +1615,16 @@ def gps_dbscan(gps_records, parameters=None):
     http://scikit-learn.org/stable/modules/generated/sklearn.cluster.DBSCAN.html
 
     Args:
-        gps_records: [GPS]
+        gps_records: [GPS] | pd.DataFrame w/lat, lon, ts as columns
         parameters: (dict) optional parameters for DBSCAN. See above
-        optics: (bool)
 
     Returns:
         labels, [dict(lat, lon, count, records)]
         ordered by number of points contained in each cluster
     """
+    if isinstance(gps_records, pd.DataFrame):
+        gps_records = records_to_gpsr(gps_records)
+
     if len(gps_records) < 2:
         return [-1 for i in range(len(gps_records))], []
 
@@ -1793,6 +1640,11 @@ def gps_dbscan(gps_records, parameters=None):
     assert len(set(pd.unique(dbscan.labels_)) - {-1}) == len(clusters)
 
     return dbscan.labels_, clusters
+
+
+def gpsr_to_records(gps_records):
+    records = pd.DataFrame(gps_records)
+    return records
 
 
 def impute_between(coordinate_a, coordinate_b, freq):
@@ -1922,6 +1774,14 @@ def impute_stationary_coordinates(records, freq='10Min', metrics=True):
         pass
 
     return records
+
+
+def records_to_gpsr(records):
+    gpsr = [
+        GPS(t.lat, t.lon, t.ts)
+        for t in records.itertuples()
+    ]
+    return gpsr
 
 
 def resample_gps_intervals(records):
