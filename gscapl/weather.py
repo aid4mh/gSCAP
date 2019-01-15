@@ -12,7 +12,7 @@ from urllib3.exceptions import NewConnectionError
 
 from sqlalchemy import and_
 from sqlalchemy import create_engine
-from sqlalchemy import Column, String, Float, DateTime
+from sqlalchemy import Column, String, Float, Date, Time
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
@@ -35,9 +35,10 @@ __status__ = 'development'
 """ Dark Sky API url """
 DARK_SKY_URL = 'https://api.darksky.net/forecast'
 
-"""How many times to retry a network timeout 
-and how many seconds to wait between each """
+"""How many times to retry a network timeout """
 CONNECTION_RESET_ATTEMPTS = 99
+
+"""Seconds to wait between each failed network attempt"""
 CONNECTION_WAIT_TIME = 60
 
 
@@ -49,7 +50,6 @@ HOURLY_COLS = [
     'cloudCoverError', 'uvIndex', 'visibility', 'lat', 'lon', 'day', 'hour',
     'ozone', 'precipAccumulation', 'precipType', 'temperatureError',
     'windBearingError', 'windGust', 'windSpeedError'
-
 ]
 
 """ SQLAlchemy declarative base for ORM features """
@@ -61,7 +61,8 @@ class HourlyWeatherReport(Base):
 
     lat = Column(Float, primary_key=True)
     lon = Column(Float, primary_key=True)
-    time = Column(DateTime, primary_key=True)
+    date = Column(Date, primary_key=True)
+    time = Column(Time, primary_key=True)
 
     apparentTemperature = Column(Float)
     cloudCover = Column(Float)
@@ -88,10 +89,6 @@ class HourlyWeatherReport(Base):
     windSpeedError = Column(Float)
 
     @hybrid_property
-    def day(self):
-        return self.time.date()
-
-    @hybrid_property
     def hour(self):
         return self.time.hour
 
@@ -101,7 +98,7 @@ class HourlyWeatherReport(Base):
             lat=self.lat,
             lon=self.lon,
             time=self.time,
-            day=self.day,
+            date=self.date,
             apparentTemperature=self.apparentTemperature,
             cloudCover=self.cloudCover,
             cloudCoverError=self.cloudCoverError,
@@ -131,7 +128,8 @@ class HourlyWeatherReport(Base):
     def from_tuple(self, tup):
         self.lat = tup.lat
         self.lon = tup.lon
-        self.time = tup.day
+        self.date = tup.date
+        self.time = tup.time
         self.apparentTemperature = tup.apparentTemperature
         self.cloudCover = tup.cloudCover
         self.cloudCoverError = tup.cloudCoverError
@@ -165,9 +163,14 @@ class HourlyWeatherReport(Base):
 
 
 @contextmanager
-def session_scope():
+def session_scope(engine_):
     """Provide a transactional scope around a series of operations."""
-    Session = sessionmaker(bind=engine)
+    if engine_ == WCNAME:
+        engine_ = create_engine(WCNAME, module=sqlite)
+    else:
+        engine_ = create_engine(engine_, module=sqlite)
+
+    Session = sessionmaker(bind=engine_)
     session = Session()
     try:
         yield session
@@ -181,23 +184,27 @@ def session_scope():
         session.close()
 
 
-wcname = 'weather_cache.sqlite'
-engine = create_engine(f'sqlite+pysqlite:///{dpath(wcname)}', module=sqlite)
-Base.metadata.create_all(engine)
-del wcname
+WCNAME = f'sqlite+pysqlite:///{dpath("weather_cache.sqlite")}'
+Base.metadata.create_all(
+    create_engine(WCNAME, module=sqlite)
+)
 
 
 """All weather requests should come as the following namedtuple"""
 WeatherRequest = namedtuple(
     'WeatherRequest', ['date', 'lat', 'lon', 'zipcode']
 )
+WEATHER_REQUEST_ERROR_MESSAGE = \
+    'Request must be a 2 or 3-tuple containing two floats to represent the latitude, ' +\
+    'longitude coordinate or an integer to represent the zipcode and a DateTime object ' +\
+    'for the date to request'
 
 
-def cache_manager(request_qu, response_qu):
+def cache_manager(request_qu, response_qu, engine_):
     finished = False
 
     while not finished:
-        with session_scope() as session:
+        with session_scope(engine_) as session:
             try:
                 r = request_qu.get()
             except EOFError:
@@ -206,11 +213,10 @@ def cache_manager(request_qu, response_qu):
             if r['type'] == 'get':
                 date, lat, lon = r['args']
                 content = get_from_cache(date, lat, lon, session)
-                response_qu.put(
-                    dict(
+                response_qu.put(dict(
                         pid=r['pid'],
-                        response=content)
-                )
+                        response=content
+                ))
 
             elif r['type'] == 'put':
                 put_to_cache(r['args'][0], session)
@@ -220,35 +226,41 @@ def cache_manager(request_qu, response_qu):
 
 
 def weather_report(
-        request, summarize='daily', n_jobs=1, progress_qu=None
+        request, summarize='daily', n_jobs=1, progress_qu=None, kwargs=None
 ):
 
-    """retrieve a weather report for specific lat, lon, and day
+    """retrieve a weather report for specific time and location
 
     Args:
-        request: (weather.WeatherRequest)
-        summarize: (str) {'daily', 'weekly'}
+        request: (int, DateTime) or (float, float, DateTime) or list containing 2 or 3 tuples
+        with each element indicating a unique request. Each 2-tuple argument will be
+        treated as (zipcode, DateTime) while each 3-tuple argument will be treated as
+        (latitude, longitude, DateTime). Latitude and longitudes must be supplied in degree
+        decimal format.
+        summarize: (str) {'none', 'daily''}
         n_jobs: (int) number of procs to use (-1 for all)
-        key: (str)
         progress_qu: (multiprocessing.Queue)
-
+        kwargs: dict used for development and testing
     Raises:
         ValueError if lat/lon is outside of valid range
-        ValueError if frequency is not in { 'hourly', 'daily' }
+        ValueError if frequency is not in { None, 'daily', 'weekly' }
 
     Returns:
-        pd.DataFrame containing hourly (24 rows) or daily (1 row) data else None
+        pd.DataFrame containing weather report
     """
-    # make sure the request is in the correct data type
-    if not isinstance(request, list):
-        request = [request]
-    else:
-        pass
+    # validate the request
+    request = verify_request(request)
 
     man = mul.Manager()
     request_qu, response_qu = man.Queue(), man.Queue()
+
+    if kwargs is not None and 'engine' in kwargs.keys():
+        engine_ = kwargs['engine']
+    else:
+        engine_ = WCNAME
+
     cman = mul.Process(
-        target=cache_manager, args=(request_qu, response_qu)
+        target=cache_manager, args=(request_qu, response_qu, engine_)
     )
     cman.start()
 
@@ -271,35 +283,9 @@ def weather_report(
         ))
         request_qu.put(dict(type='end'))
 
-    if summarize in ['daily', 'weekly']:
+    if summarize in ['daily']:
         hits = np.sum([r.get('hits') for r in results])
         misses = np.sum([r.get('misses') for r in results])
-
-        if summarize == 'weekly':
-            results = pd.concat([r.get('report') for r in results], sort=True)
-            results = results.sort_values(by='time')
-
-            # break into weekly results
-            results['week'] = [d.week for d in results.time]
-            results = [
-                dict(
-                    report=pd.DataFrame(g).drop(columns='week'),
-                    hits=0,
-                    misses=0
-                )
-                for n, g in results.groupby(['lat', 'lon', 'week'])
-            ]
-            request = [
-                WeatherRequest(
-                    date=np.min(d.time),
-                    lat=d.lat.values[0],
-                    lon=d.lon.values[0],
-                    zipcode=d.zipcode.values[0]
-                )
-                for d in [r.get('report') for r in results]
-            ]
-        else:
-            pass
 
         r_ = list(pool.map(
             summarize_report, [(c, ri) for c, ri in zip(results, request)]
@@ -313,6 +299,8 @@ def weather_report(
             report[c] = [np.round(vi, 2) if isfloat(vi) else np.nan for vi in report[c]]
 
         results = dict(report=report, hits=hits, misses=misses)
+    else:
+        results = results[0]
 
     pool.terminate(); pool.join(); del pool
     cman.terminate(); cman.join(); del cman
@@ -327,12 +315,8 @@ def get_from_cache(date, lat, lon, session):
     content = session.query(HourlyWeatherReport).filter(and_(
         (HourlyWeatherReport.lat == lat),
         (HourlyWeatherReport.lon == lon),
-        #(cast(HourlyWeatherReport.time, Date) == cast(day, Date))
-        #(HourlyWeatherReport.time == func.datetime(day))
+        (HourlyWeatherReport.date == day)
     )).all()
-
-    # this is incredibly inefficient but both methods above fail to return results for all queries
-    content = [c for c in content if c.time.date() == day]
 
     if len(content) > 0:
         content = pd.DataFrame([ri.dict for ri in content])
@@ -358,14 +342,6 @@ def make_empty(day):
 
 
 def summarize_report(args):
-    """
-
-    Args:
-        args:
-
-    Returns:
-
-    """
     c, ri = args
     r = c.get('report')
 
@@ -379,7 +355,7 @@ def summarize_report(args):
             iqr = qs[2] - qs[0]
             med = qs[1]
             m   = np.nanmean(vals) if valid else np.nan
-            s   = np.nanstd(vals)  if valid else np.nan
+            s   = np.nanstd(vals) if valid else np.nan
         except TypeError:
             med, iqr, m, s = 'err', 'err', 'err', 'err'
 
@@ -389,19 +365,17 @@ def summarize_report(args):
     dp_med, dp_iqr, dp_mean, dp_std = vstats(r.dewPoint)
     h_med, h_iqr, h_mean, h_std = vstats(r.humidity)
     t_med, t_iqr, t_mean, t_std = vstats(r.temperature)
-    p_sum  = np.sum([v  for v in r.precipIntensity if isfloat(v)])
+    p_sum  = np.sum([v for v in r.precipIntensity if isfloat(v)])
 
     # summary = ' '.join(list(set([str(v) for v in r.icon.values])))
     # summary = ', '.join(
     #     list(set(re.sub(r'(,)+', ' ', summary).split(' '))))
 
-    lat, lon, zipcode = verify_location(ri)
-
     dm = dict(
         date=ri.date,
-        lat=lat,
-        lon=lon,
-        zipcode=zipcode,
+        lat=ri.lat,
+        lon=ri.lon,
+        zipcode=ri.zipcode,
         cloud_cover_mean=cc_mean,
         cloud_cover_std=cc_std,
         cloud_cover_median=cc_med,
@@ -428,17 +402,21 @@ def process_request(args):
 
     key = CONFIG['DarkSkyAPI']
 
-    d = request.date
     day = dt.datetime(
-        year=d.year, month=d.month, day=d.day, hour=12
+        year=request.date.year,
+        month=request.date.month,
+        day=request.date.day,
+        hour=12
     )
 
-    lat, lon, zipcode = verify_location(request)
-    if lat == lon == 0:
+    if request is None:
+        update_progress(progress_qu)
         return make_empty(day)
 
     my_pid = os.getpid()
-    request_qu.put(dict(pid=my_pid, type='get', args=(day, lat, lon)))
+    request_qu.put(dict(pid=my_pid, type='get', args=(
+        day, request.lat, request.lon
+    )))
     r = response_qu.get()
 
     while r['pid'] != my_pid:
@@ -446,24 +424,18 @@ def process_request(args):
         r = response_qu.get()
 
     if r['response'] is not None:
-        if progress_qu is not None:
-            progress_qu.put(1)
-        else:
-            pass
-
-        r['response']['zipcode'] = zipcode
+        update_progress(progress_qu)
+        r['response']['zipcode'] = request.zipcode
         return dict(report=r['response'], hits=1, misses=0)
     else:
         pass
 
     # if we made it this far, we had a cache miss so make the request
-    # wrapping it to catch and retry the request if the connection errors out
-    # a fooled man don't get fooled again
     a, call_complete = 0, False
     while a < CONNECTION_RESET_ATTEMPTS and not call_complete:
         try:
             r = requests.get(
-                f'{DARK_SKY_URL}/{key}/{lat},{lon},{int(day.timestamp())}'
+                f'{DARK_SKY_URL}/{key}/{request.lat},{request.lon},{int(day.timestamp())}'
             )
             call_complete = True
         except NewConnectionError:
@@ -494,27 +466,19 @@ def process_request(args):
         t = {k: np.nan for k in HOURLY_COLS}
         c.loc[-1] = t
 
-    # cache our results
-    if pd.isnull(day):
-        raise Exception(str(request))
-    c['lat'], c['lon'], c['day'] = lat, lon, day
+    # cache the results
+    c['lat'], c['lon'], c['date'] = request.lat, request.lon, day.date()
+    c['time'] = c.time.apply(lambda x: x.time())
+    c['zipcode'] = request.zipcode
 
     # ensure any columns not returned from dark sky are still in the df
     missing_cols = list(set(HOURLY_COLS) - set(c.columns))
     for ci in missing_cols:
         c[ci] = np.nan
 
-    if any(c.day.isnull()):
-        raise Exception(str(request))
     request_qu.put(dict(type='put', args=(c,)))
 
-    # if monitoring using the progress_bar in utils and a qu is supplied
-    if progress_qu is not None:
-        progress_qu.put(1)
-    else:
-        pass
-
-    c['zipcode'] = zipcode
+    update_progress(progress_qu)
     return dict(report=c, hits=0, misses=1)
 
 
@@ -526,39 +490,74 @@ def put_to_cache(content, session):
     session.add_all(rows)
 
 
-def verify_location(request):
-    try:
-        lat, lon, zipcode = request.lat, request.lon, request.zipcode
-    except AttributeError:
-        raise ValueError('either lat, lon or zip must be supplied')
+def verify_request(request):
+    if not isinstance(request, list):
+        request = [request]
 
-    if (lat is None or lon is None) and zipcode is None:
-        raise ValueError('either lat, lon or zip must be supplied')
+    def check_one(r):
+        if len(r) == 2:
+            return verify_zipcode_date_request(r)
+        elif len(r) == 3:
+            return verify_latlon_date_request(r)
+        else:
+            raise ValueError('Only tuples of size 2 or 3 are permitted')
 
-    if (lat is not None and lon is not None) and \
-            (lat < -90 or lat > 90 or lon < -180 or lon > 180):
+    request = list(map(check_one, request))
+    return request
+
+
+def verify_zipcode_date_request(request):
+    if len(request) != 2:
+        raise ValueError(WEATHER_REQUEST_ERROR_MESSAGE)
+
+    zc, d = None, None
+    for i in request:
+        if isinstance(i, int) or isint(i):
+            zc = int(i)
+        elif isinstance(i, dt.datetime):
+            d = i
+
+    if d is None or zc is None:
+        raise ValueError(WEATHER_REQUEST_ERROR_MESSAGE)
+
+    lat, lon = dd_from_zip(zc)
+
+    if lat == lon == 0:
+        print(f'zip <{zc}> was not found in db. skipping this request')
+        return None
+
+    return WeatherRequest(lat=lat, lon=lon, zipcode=zc, date=d)
+
+
+def verify_latlon_date_request(request):
+    if len(request) != 3:
+        raise ValueError(WEATHER_REQUEST_ERROR_MESSAGE)
+
+    lat, lon, d = None, None, None
+    for i in request:
+        if isinstance(i, (int, float)) or isfloat(i):
+            if lat is None:
+                lat = float(i)
+            elif lon is None:
+                lon = float(i)
+        elif isinstance(i, dt.datetime):
+            d = i
+
+    if lat < -90 or lat > 90 or lon < -180 or lon > 180:
         raise ValueError('lat, lon must be in a valid range')
 
-    if zipcode is not None:
-        lat, lon = dd_from_zip(zipcode)
+    if lat is None or lon is None or d is None:
+        raise ValueError(WEATHER_REQUEST_ERROR_MESSAGE)
 
-        if lat == lon == 0:
-            print(f'zip <{zipcode}> was not found in db')
+    zc = zip_from_dd(lat, lon, suppress_warnings=True)
+    return WeatherRequest(lat=lat, lon=lon, zipcode=zc, date=d)
+
+
+def update_progress(progress_queue):
+    if progress_queue is not None:
+        progress_queue.put(1)
     else:
         pass
-
-    lat = np.round(lat, 1)
-    lon = np.round(lon, 1)
-
-    return lat, lon, zipcode
-
-
-def remove_null_island():
-    with session_scope() as session:
-        session.query(HourlyWeatherReport).filter(and_(
-            (HourlyWeatherReport.lat == 0),
-            (HourlyWeatherReport.lon == 0)
-        )).delete()
 
 
 if __name__ == '__main__':
