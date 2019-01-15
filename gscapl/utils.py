@@ -7,6 +7,7 @@ from multiprocessing import Manager, Queue, Process
 import re
 from pathlib import Path
 import os
+import sys
 
 import numpy as np
 import pandas as pd
@@ -89,7 +90,7 @@ def isint(x):
     try:
         int(float(x))
         return True
-    except ValueError:
+    except:
         return False
 
 
@@ -100,7 +101,7 @@ def isfloat(x):
     try:
         float(x)
         return True
-    except ValueError:
+    except:
         return False
 
 
@@ -113,16 +114,28 @@ def dd_from_zip(zipcode):
         return 0, 0
 
 
-def zip_from_dd(lat, lon):
+def zip_from_dd(lat, lon, maxd=sys.maxsize, suppress_warnings=False):
+    if not isinstance(lat, float) or not isinstance(lon, float) or not isinstance(maxd, (float, int)):
+        raise TypeError('lat, lon and maxdistance must be ints or floats')
     try:
         # get closest zip within 7 miles
-        win68miles = zips.loc[
-            (np.round(zips.lat, 0) == np.round(lat, 0)) &
-            (np.round(zips.lon, 0) == np.round(lon, 0))
-        ].dropna()
+        nearest = ztree.query(
+            (lat, lon),
+            k=1,
+            distance_upper_bound=maxd
+        )
+        if not suppress_warnings:
+            if nearest[0] == float('inf'):
+                print(f'WARNING: zipcode not found within {maxd} of {lat}, {lon}.')
+                return -1
+            elif nearest[0] > 100:
+                print(f'WARNING: closest zipcode found was {nearest[0]} km from {lat}, {lon}.')
+            else:
+                pass
+        else:
+            pass
 
-        win68miles['d'] = [geo_distance(lat, lon, r.lat, r.lon) for r in win68miles.itertuples()]
-        return zips.loc[win68miles.d.idxmin()].index.tolist()[0]
+        return int(zips.iloc[nearest[1]].name)
     except:
         return -1
 
