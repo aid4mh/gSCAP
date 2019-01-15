@@ -1,7 +1,7 @@
 import datetime as dt
 import os
 from sqlite3 import dbapi2 as sqlite
-from unittest import TestCase
+from unittest import skip, TestCase
 
 import numpy as np
 import pandas as pd
@@ -102,6 +102,7 @@ class TestWeather(TestCase):
             for i in request
         ))
 
+    @skip
     def test_hourly_weather_report_ll(self):
         report = wthr.weather_report(self.wrequest_ll, kwargs=self.cache_kwargs)
         self.assertTrue(report is not None)
@@ -112,6 +113,7 @@ class TestWeather(TestCase):
         self.assertTrue(isinstance(report.get('report'), pd.DataFrame))
         self.assertTrue(report.get('report').shape is not (0, 0))
 
+    @skip
     def test_hourly_weather_report_no_summary(self):
         report = wthr.weather_report(self.wrequest_ll, summarize='none', kwargs=self.cache_kwargs)
         self.assertTrue(report is not None)
