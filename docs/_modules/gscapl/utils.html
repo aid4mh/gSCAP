@@ -80,8 +80,10 @@
               
             
             
-              <!-- Local TOC -->
-              <div class="local-toc"></div>
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../weather/index.html">Weather Pipe</a></li>
+</ul>
+
             
           
         </div>
@@ -152,6 +154,7 @@
 <span class="kn">import</span> <span class="nn">re</span>
 <span class="kn">from</span> <span class="nn">pathlib</span> <span class="k">import</span> <span class="n">Path</span>
 <span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">sys</span>
 
 <span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
 <span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
@@ -234,7 +237,7 @@
     <span class="k">try</span><span class="p">:</span>
         <span class="nb">int</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">x</span><span class="p">))</span>
         <span class="k">return</span> <span class="kc">True</span>
-    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+    <span class="k">except</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">False</span>
 
 
@@ -245,7 +248,7 @@
     <span class="k">try</span><span class="p">:</span>
         <span class="nb">float</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
         <span class="k">return</span> <span class="kc">True</span>
-    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+    <span class="k">except</span><span class="p">:</span>
         <span class="k">return</span> <span class="kc">False</span>
 
 
@@ -258,16 +261,28 @@
         <span class="k">return</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span>
 
 
-<span class="k">def</span> <span class="nf">zip_from_dd</span><span class="p">(</span><span class="n">lat</span><span class="p">,</span> <span class="n">lon</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">zip_from_dd</span><span class="p">(</span><span class="n">lat</span><span class="p">,</span> <span class="n">lon</span><span class="p">,</span> <span class="n">maxd</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">maxsize</span><span class="p">,</span> <span class="n">suppress_warnings</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">lat</span><span class="p">,</span> <span class="nb">float</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">lon</span><span class="p">,</span> <span class="nb">float</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">maxd</span><span class="p">,</span> <span class="p">(</span><span class="nb">float</span><span class="p">,</span> <span class="nb">int</span><span class="p">)):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s1">&#39;lat, lon and maxdistance must be ints or floats&#39;</span><span class="p">)</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="c1"># get closest zip within 7 miles</span>
-        <span class="n">win68miles</span> <span class="o">=</span> <span class="n">zips</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span>
-            <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">zips</span><span class="o">.</span><span class="n">lat</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">==</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">lat</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span> <span class="o">&amp;</span>
-            <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">zips</span><span class="o">.</span><span class="n">lon</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">==</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">lon</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
-        <span class="p">]</span><span class="o">.</span><span class="n">dropna</span><span class="p">()</span>
+        <span class="n">nearest</span> <span class="o">=</span> <span class="n">ztree</span><span class="o">.</span><span class="n">query</span><span class="p">(</span>
+            <span class="p">(</span><span class="n">lat</span><span class="p">,</span> <span class="n">lon</span><span class="p">),</span>
+            <span class="n">k</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+            <span class="n">distance_upper_bound</span><span class="o">=</span><span class="n">maxd</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">suppress_warnings</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">nearest</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="nb">float</span><span class="p">(</span><span class="s1">&#39;inf&#39;</span><span class="p">):</span>
+                <span class="nb">print</span><span class="p">(</span><span class="n">f</span><span class="s1">&#39;WARNING: zipcode not found within </span><span class="si">{maxd}</span><span class="s1"> of </span><span class="si">{lat}</span><span class="s1">, </span><span class="si">{lon}</span><span class="s1">.&#39;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="o">-</span><span class="mi">1</span>
+            <span class="k">elif</span> <span class="n">nearest</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">100</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="n">f</span><span class="s1">&#39;WARNING: closest zipcode found was </span><span class="si">{nearest[0]}</span><span class="s1"> km from </span><span class="si">{lat}</span><span class="s1">, </span><span class="si">{lon}</span><span class="s1">.&#39;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">pass</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">pass</span>
 
-        <span class="n">win68miles</span><span class="p">[</span><span class="s1">&#39;d&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">geo_distance</span><span class="p">(</span><span class="n">lat</span><span class="p">,</span> <span class="n">lon</span><span class="p">,</span> <span class="n">r</span><span class="o">.</span><span class="n">lat</span><span class="p">,</span> <span class="n">r</span><span class="o">.</span><span class="n">lon</span><span class="p">)</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">win68miles</span><span class="o">.</span><span class="n">itertuples</span><span class="p">()]</span>
-        <span class="k">return</span> <span class="n">zips</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">win68miles</span><span class="o">.</span><span class="n">d</span><span class="o">.</span><span class="n">idxmin</span><span class="p">()]</span><span class="o">.</span><span class="n">index</span><span class="o">.</span><span class="n">tolist</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">zips</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">nearest</span><span class="p">[</span><span class="mi">1</span><span class="p">]]</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
     <span class="k">except</span><span class="p">:</span>
         <span class="k">return</span> <span class="o">-</span><span class="mi">1</span>
 

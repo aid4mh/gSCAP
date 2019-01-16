@@ -8,7 +8,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Overview: module code &mdash; GSCAP 0 documentation</title>
+  <title>Weather Pipe &mdash; GSCAP 0 documentation</title>
   
 
   
@@ -27,7 +27,8 @@
   <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
   <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
-    <link rel="search" title="Search" href="../search.html" /> 
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="prev" title="Welcome to GSCAP’s documentation!" href="../index.html" /> 
 
   
   <script src="../_static/js/modernizr.min.js"></script>
@@ -80,8 +81,10 @@
               
             
             
-              <ul>
-<li class="toctree-l1"><a class="reference internal" href="../weather/index.html">Weather Pipe</a></li>
+              <ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Weather Pipe</a><ul class="simple">
+</ul>
+</li>
 </ul>
 
             
@@ -127,10 +130,14 @@
     
       <li><a href="../index.html">Docs</a> &raquo;</li>
         
-      <li>Overview: module code</li>
+      <li>Weather Pipe</li>
     
     
       <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="../_sources/weather/index.rst.txt" rel="nofollow"> View page source</a>
+          
         
       </li>
     
@@ -142,19 +149,59 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
             
-  <h1>All modules for which code is available</h1>
-<ul><li><a href="gscapl/gps.html">gscapl.gps</a></li>
-<li><a href="gscapl/utils.html">gscapl.utils</a></li>
-<li><a href="gscapl/weather.html">gscapl.weather</a></li>
-<li><a href="namedtuple_Cluster.html">namedtuple_Cluster</a></li>
-<li><a href="namedtuple_GPS.html">namedtuple_GPS</a></li>
-<li><a href="namedtuple_WeatherRequest.html">namedtuple_WeatherRequest</a></li>
+  <div class="section" id="weather-pipe">
+<h1>Weather Pipe<a class="headerlink" href="#weather-pipe" title="Permalink to this headline">¶</a></h1>
+<div class="toctree-wrapper compound">
+</div>
+<span class="target" id="module-gscapl.weather"></span><p>A collection of scripts for processing weather data</p>
+<dl class="function">
+<dt id="gscapl.weather.weather_report">
+<code class="descclassname">gscapl.weather.</code><code class="descname">weather_report</code><span class="sig-paren">(</span><em>request</em>, <em>summarize='daily'</em>, <em>n_jobs=1</em>, <em>progress_qu=None</em>, <em>kwargs=None</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/gscapl/weather.html#weather_report"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.weather.weather_report" title="Permalink to this definition">¶</a></dt>
+<dd><p>retrieve a weather report for specific time and location</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>request</strong> – (int, DateTime) or (float, float, DateTime) or list containing 2 or 3 tuples</li>
+<li><strong>with each element indicating a unique request. Each 2-tuple argument will be</strong></li>
+<li><strong>treated as</strong> (<em>zipcode, DateTime</em>)</li>
+<li><strong>(latitude, longitude, DateTime). Latitude and longitudes must be supplied in degree</strong></li>
+<li><strong>decimal format.</strong></li>
+<li><strong>summarize</strong> – (str) {‘none’, ‘daily’‘}</li>
+<li><strong>n_jobs</strong> – (int) number of procs to use (-1 for all)</li>
+<li><strong>progress_qu</strong> – (multiprocessing.Queue)</li>
+<li><strong>kwargs</strong> – dict used for development and testing</li>
 </ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Raises:</th><td class="field-body"><ul class="first simple">
+<li>ValueError if lat/lon is outside of valid range</li>
+<li>ValueError if frequency is not in { None, ‘daily’, ‘weekly’ }</li>
+</ul>
+</td>
+</tr>
+<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">pd.DataFrame containing weather report</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+</div>
+
 
            </div>
            
           </div>
           <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+      
+        <a href="../index.html" class="btn btn-neutral" title="Welcome to GSCAP’s documentation!" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
   
 
   <hr/>

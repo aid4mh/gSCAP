@@ -12,6 +12,19 @@ set BUILDDIR=build
 
 if "%1" == "" goto help
 
+rem delete existing
+rd /s /q _modules
+rd /s /q _sources
+rd /s /q _static
+del .buildinfo
+del genindex.html
+del index.html
+del objects.inv
+del py-modindex.html
+del search.html
+del searchindex.js
+
+rem proceed with the build
 %SPHINXBUILD% >NUL 2>NUL
 if errorlevel 9009 (
 	echo.
@@ -26,6 +39,11 @@ if errorlevel 9009 (
 )
 
 %SPHINXBUILD% -M %1 %SOURCEDIR% %BUILDDIR% %SPHINXOPTS%
+
+rem move built html fils for github-pages
+for %%i in (%BUILDDIR%\html\*) do move "%%i" .
+for /d %%D in (%BUILDDIR%\html\*) do move "%%D" .
+
 goto end
 
 :help

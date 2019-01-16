@@ -1,5 +1,5 @@
 import datetime as dt
-from unittest import TestCase
+from unittest import skip, TestCase
 
 import pandas as pd
 
@@ -74,3 +74,9 @@ class TestGPS(TestCase):
         l, c = gps.gps_dbscan(r)
         assert isinstance(l, list) and isinstance(c, list)
         assert len(l) == 1 and len(c) == 0
+
+    @skip
+    def test_takeout_parser(self):
+        fn = 'location_history.json'
+        results = gps.prep_takeout_data(fn)
+        self.assertTrue(isinstance(results, pd.DataFrame))

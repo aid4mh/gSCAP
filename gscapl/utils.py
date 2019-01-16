@@ -141,9 +141,23 @@ def zip_from_dd(lat, lon, maxd=sys.maxsize, suppress_warnings=False):
 
 
 def tz_from_dd(points):
+    if isinstance(points, pd.DataFrame):
+        points = points.values.tolist()
+
+    if not isinstance(points, list):
+        points = [points]
+
     x = ztree.query(points)
     x = zips.iloc[x[1]].timezone.values
     return x
+
+
+def tz_from_zip(zipcode):
+    if not isinstance(zipcode, list):
+        zipcode = [zipcode]
+
+    points = [dd_from_zip(zc) for zc in zipcode]
+    return tz_from_dd(points)
 
 
 def geo_distance(lat1, lon1, lat2, lon2):
