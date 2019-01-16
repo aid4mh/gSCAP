@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from enum import Enum
 import json
 import multiprocessing as mul
+from multiprocessing.dummy import Pool as TPool
 import requests
 from sqlite3 import dbapi2 as sqlite
 import sys
@@ -21,6 +22,7 @@ from sqlalchemy import Column, String, Float, DateTime
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
+from tqdm import tqdm
 
 from gscapl.utils import *
 
@@ -39,6 +41,9 @@ __status__ = 'development'
 and how many seconds to wait between each """
 CONNECTION_RESET_ATTEMPTS = 99
 CONNECTION_WAIT_TIME = 60
+
+"""setting tqdm to work with pandas"""
+tqdm.pandas()
 
 """named tuple used to clarify types used in the scripts below"""
 GPS = namedtuple('GPS', ['lat', 'lon', 'ts'])
@@ -1247,158 +1252,89 @@ def get_clusters_with_context(records, parameters=None, validation_metrics=False
         print(e, exc_type, fname, exc_tb.tb_lineno)
 
 
-def get_cluster_times(records, clusters):
-    records['day'] = records.ts.apply(lambda x: x.date())
-    grouped = records.sort_values(by=['ts'], ascending=True).groupby(['day'])
+def get_cluster_times(records):
+    def cid_of_day(x):
+        x = x.sort_values(by='ts')
 
-    ln_c, ln_d, entries = None, 0, []
-    for yday, group in grouped:
-        # convert to dataframe and sort by timestamp
-        df = pd.DataFrame(group).sort_values('ts', ascending=True)
-
-        start = end = last_c, ts_cnt = None, 0
-        for i, r in enumerate(df.itertuples()):
-
-            # if this point is assigned to a cluster
-            if r.cid != 'xNot':
-                c = list(clusters.loc[clusters.cid == r.cid].itertuples())[0]
-                c = Cluster(c.lat, c.lon, c.cid)
-
-                # if a start hasn't been recorded
-                if start is None:
-
-                    # either this is a continuation of the day prior
-                    if i == 0 \
-                            and ln_c is not None \
-                            and yday == ln_d + 1 \
-                            and c.cid == ln_c.cid:
-
-                        # make sure this timestamp starts at midnight
-                        start = end = GPS(
-                            lat=c.lat,
-                            lon=c.lon,
-                            ts=dt.datetime(
-                                year=r.ts.year,
-                                month=r.ts.month,
-                                day=r.ts.day)
-                        )
-
-                        # and last night's timestamp goes to midnight
-                        to = entries[-1].time_out
-                        entries[-1].time_out = dt.datetime(
-                            year=to.year, month=to.month, day=to.day,
-                            hour=23, minute=59, second=59
-                        )
-
-                        last_c = c
-                        ts_cnt += 1
-
-                    # or the subject started recording after they left
-                    # wherever they went to sleep or more than a day has
-                    # passed since the last recording
-                    else:
-                        start = end = r
-                        last_c = c
-                        ts_cnt += 1
-
-                # if we're still in the same cluster reset the last position
-                elif last_c is not None and last_c.cid == c.cid:
-                    end = r
-                    ts_cnt += 1
-
-                # otherwise they've gone to a different cluster
-                else:
-                    # make sure they weren't just passing through
-                    if ts_cnt > 1:
-                        entries.append(
-                            dict(
-                                cid=last_c.cid,
-                                time_in=start.ts,
-                                time_out=end.ts,
-                                lat=last_c.lat,
-                                lon=last_c.lon
-                            )
-                        )
-                    else:
-                        pass
-
-                    start = end = r
-                    last_c = c
-                    ts_cnt = 1
-
-            # the subject left a valid cluster
-            elif start is not None:
-                if ts_cnt > 1:
-                    entries.append(
-                        dict(
-                            cid=last_c.cid,
-                            time_in=start.ts,
-                            time_out=end.ts,
-                            lat=last_c.lat,
-                            lon=last_c.lon
-                        )
-                    )
-                else:
-                    pass
-
-                start = end = last_c = None
-                ts_cnt = 0
-
-            # and finally, if the day started with a point that hasn't been
-            # assigned to cluster
+        seen, i = ['start'], 0
+        for idx, xi in x.iterrows():
+            if seen[-1] != xi.cid:
+                seen.append(xi.cid)
+                i += 1
             else:
-                last_c = None
-                continue
+                pass
 
-        # reset last-night's cluster and day
-        ln_c, ln_d = last_c, int(yday)
+            x.loc[idx, 'pos'] = i
+        return x
 
-    entries = pd.DataFrame(entries)
-    entries['duration'] = [
-        r.time_out-r.time_in for r in entries.itertuples()
-    ]
-    entries['midpoint'] = [
-        r.time_in + r.duration/2
-        for r in entries.itertuples()
-    ]
-    entries['date'] = entries.midpoint.apply(lambda r: r.date())
-    entries['tod'] = entries.midpoint.apply(lambda r: r.time())
+    def collapse(x):
+        time_in = x.iloc[0].ts
+        time_out = x.iloc[-1].ts
 
-    def tod_bin(x):
-        x = x.hour
+        y = pd.Series()
+        y['time_in'] = time_in
+        y['time_out'] = time_out
+        y['n_points'] = len(x)
+        y['lat'] = x.lat.median()
+        y['lon'] = x.lon.median()
 
-        if x < 9:
-            return 'early_morning'
-        elif 9 <= x < 12:
-            return 'morning'
-        elif 12 <= x < 17:
-            return 'afternoon'
-        elif 17 <= x:
-            return 'evening'
+        return y
 
-    entries['tod_bin'] = entries.midpoint.apply(tod_bin)
+    def merge_nights(i, y):
+        x = entries.loc[i - 1]
 
-    def cname(cid):
-        c = clusters.loc[clusters.cid == cid, 'name'].values
+        if y.pos == 1:
+            if x.cid == y.cid and x.date == y.date - dt.timedelta(days=1):
+                # adjust yesterday to end of day
+                entries.loc[i - 1, 'time_out'] = dt.datetime(
+                    year=x.time_out.year, month=x.time_out.month, day=x.time_out.day,
+                    hour=23, minute=59, second=59
+                )
 
-        if len(c) > 0:
-            return c[0]
+                # adjust today to start of day
+                entries.loc[i, 'time_in'] = dt.datetime(
+                    year=y.time_in.year, month=y.time_in.month, day=y.time_in.day
+                )
 
-        return 'err'
+    records_ = records.copy()
+    records_.date = records_.date.apply(str)
+    records_['pos'] = 1
 
-    def ccat(cid):
-        c = clusters.loc[clusters.cid == cid, 'categories'].values
+    # for each day count the cid entry number for that day
+    entries = records_ \
+        .loc[records_.binning == 'stationary'] \
+        .sort_values(by=['ts']) \
+        .groupby(['date']) \
+        .apply(cid_of_day) \
+        .reset_index(drop=True)
 
-        if len(c) > 0:
-            return c[0]
+    # groupby by that position and calcculate time intervals
+    entries = entries.groupby(['date', 'pos', 'cid']) \
+        .apply(collapse) \
+        .reset_index()
 
-        return 'err'
+    # reindex the rows
+    entries = entries.reset_index(drop=True)
 
-    if 'cid' not in entries.columns:
-        return None
-    else:
-        entries['cname'] = entries.cid.apply(cname)
-        entries['category'] = entries.cid.apply(ccat)
+    # set back to correct datatype
+    entries.date = pd.to_datetime(entries.date).apply(lambda x: x.date())
+
+    # adjust night and morning timestamps if the cids match across midnight
+    for i, y in entries.iloc[1:len(entries)].iterrows():
+        merge_nights(i, y)
+
+    entries['duration'] = (entries['time_out'] - entries['time_in']).dt.round('1s')
+    entries['midpoint'] = (entries['time_in'] + entries['duration'] / 2).dt.round('1s')
+    entries['tod'] = entries.midpoint.apply(lambda x: x.time())
+
+    # reindex the columns
+    entries = entries.reindex(columns=[
+        'cid', 'date', 'tod', 'tod_bin', 'time_in', 'midpoint',
+        'time_out', 'duration', 'pos', 'n_points', 'lat', 'lon'
+    ])
+
+    # add the local timezone
+    entries['local_tz'] = tz_from_dd(entries[['lat', 'lon']])
 
     return entries
 
@@ -1703,6 +1639,7 @@ def impute_stationary_coordinates(records, freq='10Min', metrics=True):
         records: (DataFrame)
         freq: (str)
         metrics: (bool)
+        verbose:
 
     Returns:
         [GPS]
@@ -1811,6 +1748,66 @@ def resample_gps_intervals(records):
     return resampled
 
 
+def prep_takeout_data(file_name):
+    def arow(args):
+        idx, row = args
+
+        j_ = js.activity[idx]
+        pbar.update(1)
+
+        if isinstance(j_, float):
+            return np.nan
+
+        if len(j_) > 0:
+            try:
+                return j_[0]['activity'][0]['type']
+            except:
+                return np.nan
+        else:
+            return np.nan
+
+    with open(file_name, 'r') as f:
+        js = json.load(f)
+
+    js = pd.DataFrame(js['locations'])
+
+    if 'verticalAccuracy' in js.columns:
+        js.drop(columns='verticalAccuracy', inplace=True)
+
+    if 'altitude' in js.columns:
+        js.drop(columns='altitude', inplace=True)
+
+    if 'heading' in js.columns:
+        js.drop(columns='heading', inplace=True)
+
+    if 'velocity' in js.columns:
+        js.drop(columns='velocity', inplace=True)
+
+    js['accuracy_ok'] = js.accuracy < 150
+
+    js.timestampMs = pd.to_datetime(js.timestampMs, unit='ms')
+
+    js.latitudeE7 = np.round(js.latitudeE7/10e6, 5)
+    js.longitudeE7 = np.round(js.longitudeE7/10e6, 5)
+
+    js['date'] = js.timestampMs.progress_apply(dt.datetime.date)
+
+    if 'activity' in js.columns:
+        pool = TPool(mul.cpu_count())
+
+        pbar = tqdm(total=len(js))
+
+        js.activity = list(pool.map(arow, list(js.iterrows())))
+
+        pool.close()
+        pool.join()
+
+    js.rename(columns={'latitudeE7': 'lat', 'longitudeE7': 'lon', 'timestampMs': 'ts'}, inplace=True)
+
+    js = js.sort_values(by='ts')
+    return js
+
+
 def __geo_distance_wrapper(args):
     a, b = args
     return geo_distance(*a, *b)
@@ -1851,8 +1848,8 @@ def __validate_scikit_params(parameters):
         pass
 
     # set default values if the dictionary didn't contain correct keys
-    eps = 0.001 if eps is None else eps
-    min_samples = 2 if min_samples is None else min_samples
+    eps = 0.005 if eps is None else eps
+    min_samples = 100 if min_samples is None else min_samples
     metric = 'euclidean' if metric is None else metric
     n_jobs = -1 if n_jobs is None else n_jobs
 
