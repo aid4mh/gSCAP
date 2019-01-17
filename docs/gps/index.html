@@ -8,7 +8,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Weather &mdash; GSCAP 0 documentation</title>
+  <title>GPS and Clustering &mdash; GSCAP 0 documentation</title>
   
 
   
@@ -28,8 +28,8 @@
   <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Utilities" href="../utils/index.html" />
-    <link rel="prev" title="GPS and Clustering" href="../gps/index.html" /> 
+    <link rel="next" title="Weather" href="../weather/index.html" />
+    <link rel="prev" title="Welcome to GSCAP’s documentation!" href="../index.html" /> 
 
   
   <script src="../_static/js/modernizr.min.js"></script>
@@ -83,10 +83,10 @@
             
             
               <ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="../gps/index.html">GPS and Clustering</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Weather</a><ul class="simple">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">GPS and Clustering</a><ul class="simple">
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="../weather/index.html">Weather</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../utils/index.html">Utilities</a></li>
 </ul>
 
@@ -133,13 +133,13 @@
     
       <li><a href="../index.html">Docs</a> &raquo;</li>
         
-      <li>Weather</li>
+      <li>GPS and Clustering</li>
     
     
       <li class="wy-breadcrumbs-aside">
         
             
-            <a href="../_sources/weather/index.rst.txt" rel="nofollow"> View page source</a>
+            <a href="../_sources/gps/index.rst.txt" rel="nofollow"> View page source</a>
           
         
       </li>
@@ -152,47 +152,34 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
             
-  <div class="section" id="weather">
-<h1>Weather<a class="headerlink" href="#weather" title="Permalink to this headline">¶</a></h1>
+  <div class="section" id="gps-and-clustering">
+<h1>GPS and Clustering<a class="headerlink" href="#gps-and-clustering" title="Permalink to this headline">¶</a></h1>
 <div class="toctree-wrapper compound">
 </div>
-<span class="target" id="module-gscapl.weather"></span><p>A collection of scripts for gathering weather data</p>
-<dl class="data">
-<dt id="gscapl.weather.CONNECTION_RESET_ATTEMPTS">
-<code class="descclassname">gscapl.weather.</code><code class="descname">CONNECTION_RESET_ATTEMPTS</code><em class="property"> = 99</em><a class="headerlink" href="#gscapl.weather.CONNECTION_RESET_ATTEMPTS" title="Permalink to this definition">¶</a></dt>
-<dd><p>How many times to retry a network timeout</p>
-</dd></dl>
-
-<dl class="data">
-<dt id="gscapl.weather.CONNECTION_WAIT_TIME">
-<code class="descclassname">gscapl.weather.</code><code class="descname">CONNECTION_WAIT_TIME</code><em class="property"> = 60</em><a class="headerlink" href="#gscapl.weather.CONNECTION_WAIT_TIME" title="Permalink to this definition">¶</a></dt>
-<dd><p>Seconds to wait between each failed network attempt</p>
-</dd></dl>
-
+<span class="target" id="module-gscapl.gps"></span><p>A collection of scripts for processing GPS streams</p>
 <dl class="function">
-<dt id="gscapl.weather.weather_report">
-<code class="descclassname">gscapl.weather.</code><code class="descname">weather_report</code><span class="sig-paren">(</span><em>request</em>, <em>summarize='daily'</em>, <em>n_jobs=1</em>, <em>progress_qu=None</em>, <em>kwargs=None</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/gscapl/weather.html#weather_report"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.weather.weather_report" title="Permalink to this definition">¶</a></dt>
-<dd><p>retrieve a weather report for specific time and location</p>
+<dt id="gscapl.gps.impute_stationary_coordinates">
+<code class="descclassname">gscapl.gps.</code><code class="descname">impute_stationary_coordinates</code><span class="sig-paren">(</span><em>records</em>, <em>freq='10Min'</em>, <em>metrics=True</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/gscapl/gps.html#impute_stationary_coordinates"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.gps.impute_stationary_coordinates" title="Permalink to this definition">¶</a></dt>
+<dd><p>resample a stream of <cite>gps_records</cite> boosting the number of points
+spent at stationary positions. This method is used due to to how the
+data were collected. GPS coordinates were recorded at either 15min
+intervals or when the user moved 100 meters, whichever came first.
+For this reason, the data is collected in a biased manner. Using this
+function, we even the distribution across semantically binned velocities
+making density based clustering algorithms more effective.</p>
 <table class="docutils field-list" frame="void" rules="none">
 <col class="field-name" />
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
-<li><strong>request</strong> – (int, DateTime) or (float, float, DateTime) or list containing 2 or 3 tuples with each element indicating a unique request. Each 2-tuple argument will be treated as (zipcode, DateTime) while each 3-tuple argument will be treated as (latitude, longitude, DateTime). Latitude and longitudes must be supplied in degree decimal format.</li>
-<li><strong>summarize</strong> – (str) {‘none’, ‘daily’‘}</li>
-<li><strong>n_jobs</strong> – (int) number of procs to use (-1 for all)</li>
-<li><strong>progress_qu</strong> – (multiprocessing.Queue)</li>
-<li><strong>kwargs</strong> – dict used for development and testing</li>
+<li><strong>records</strong> – (DataFrame)</li>
+<li><strong>freq</strong> – (str)</li>
+<li><strong>metrics</strong> – (bool)</li>
+<li><strong>verbose</strong></li>
 </ul>
 </td>
 </tr>
-<tr class="field-even field"><th class="field-name">Raises:</th><td class="field-body"><ul class="first simple">
-<li>ValueError if lat/lon is outside of valid range</li>
-<li>ValueError if frequency is not in { None, ‘daily’ }</li>
-</ul>
-</td>
-</tr>
-<tr class="field-odd field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">pd.DataFrame containing weather report</p>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">[GPS]</p>
 </td>
 </tr>
 </tbody>
@@ -209,10 +196,10 @@
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="../utils/index.html" class="btn btn-neutral float-right" title="Utilities" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
+        <a href="../weather/index.html" class="btn btn-neutral float-right" title="Weather" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
       
       
-        <a href="../gps/index.html" class="btn btn-neutral" title="GPS and Clustering" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+        <a href="../index.html" class="btn btn-neutral" title="Welcome to GSCAP’s documentation!" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
       
     </div>
   

@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 
-""" A collection of scripts for processing weather data """
+""" A collection of scripts for gathering weather data """
 
 from collections import namedtuple
 from contextlib import contextmanager
+import datetime as dt
 import multiprocessing as mul
 import requests
 from sqlite3 import dbapi2 as sqlite
@@ -35,12 +36,11 @@ __status__ = 'development'
 """ Dark Sky API url """
 DARK_SKY_URL = 'https://api.darksky.net/forecast'
 
-"""How many times to retry a network timeout """
 CONNECTION_RESET_ATTEMPTS = 99
+"""How many times to retry a network timeout """
 
-"""Seconds to wait between each failed network attempt"""
 CONNECTION_WAIT_TIME = 60
-
+"""Seconds to wait between each failed network attempt"""
 
 """Dark Sky hourly call columns"""
 HOURLY_COLS = [
@@ -232,18 +232,14 @@ def weather_report(
     """retrieve a weather report for specific time and location
 
     Args:
-        request: (int, DateTime) or (float, float, DateTime) or list containing 2 or 3 tuples
-        with each element indicating a unique request. Each 2-tuple argument will be
-        treated as (zipcode, DateTime) while each 3-tuple argument will be treated as
-        (latitude, longitude, DateTime). Latitude and longitudes must be supplied in degree
-        decimal format.
+        request: (int, DateTime) or (float, float, DateTime) or list containing 2 or 3 tuples with each element indicating a unique request. Each 2-tuple argument will be treated as (zipcode, DateTime) while each 3-tuple argument will be treated as (latitude, longitude, DateTime). Latitude and longitudes must be supplied in degree decimal format.
         summarize: (str) {'none', 'daily''}
         n_jobs: (int) number of procs to use (-1 for all)
         progress_qu: (multiprocessing.Queue)
         kwargs: dict used for development and testing
     Raises:
         ValueError if lat/lon is outside of valid range
-        ValueError if frequency is not in { None, 'daily', 'weekly' }
+        ValueError if frequency is not in { None, 'daily' }
 
     Returns:
         pd.DataFrame containing weather report

@@ -81,7 +81,9 @@
             
             
               <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../weather/index.html">Weather Pipe</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../gps/index.html">GPS and Clustering</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../weather/index.html">Weather</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../utils/index.html">Utilities</a></li>
 </ul>
 
             
@@ -154,6 +156,7 @@
 <span class="kn">from</span> <span class="nn">enum</span> <span class="k">import</span> <span class="n">Enum</span>
 <span class="kn">import</span> <span class="nn">json</span>
 <span class="kn">import</span> <span class="nn">multiprocessing</span> <span class="k">as</span> <span class="nn">mul</span>
+<span class="kn">from</span> <span class="nn">multiprocessing.dummy</span> <span class="k">import</span> <span class="n">Pool</span> <span class="k">as</span> <span class="n">TPool</span>
 <span class="kn">import</span> <span class="nn">requests</span>
 <span class="kn">from</span> <span class="nn">sqlite3</span> <span class="k">import</span> <span class="n">dbapi2</span> <span class="k">as</span> <span class="n">sqlite</span>
 <span class="kn">import</span> <span class="nn">sys</span>
@@ -168,6 +171,7 @@
 <span class="kn">from</span> <span class="nn">sqlalchemy.orm</span> <span class="k">import</span> <span class="n">sessionmaker</span>
 <span class="kn">from</span> <span class="nn">sqlalchemy.exc</span> <span class="k">import</span> <span class="n">IntegrityError</span>
 <span class="kn">from</span> <span class="nn">sqlalchemy.ext.declarative</span> <span class="k">import</span> <span class="n">declarative_base</span>
+<span class="kn">from</span> <span class="nn">tqdm</span> <span class="k">import</span> <span class="n">tqdm</span>
 
 <span class="kn">from</span> <span class="nn">gscapl.utils</span> <span class="k">import</span> <span class="o">*</span>
 
@@ -187,6 +191,9 @@
 <span class="n">CONNECTION_RESET_ATTEMPTS</span> <span class="o">=</span> <span class="mi">99</span>
 <span class="n">CONNECTION_WAIT_TIME</span> <span class="o">=</span> <span class="mi">60</span>
 
+<span class="sd">&quot;&quot;&quot;setting tqdm to work with pandas&quot;&quot;&quot;</span>
+<span class="n">tqdm</span><span class="o">.</span><span class="n">pandas</span><span class="p">()</span>
+
 <span class="sd">&quot;&quot;&quot;named tuple used to clarify types used in the scripts below&quot;&quot;&quot;</span>
 <span class="n">GPS</span> <span class="o">=</span> <span class="n">namedtuple</span><span class="p">(</span><span class="s1">&#39;GPS&#39;</span><span class="p">,</span> <span class="p">[</span><span class="s1">&#39;lat&#39;</span><span class="p">,</span> <span class="s1">&#39;lon&#39;</span><span class="p">,</span> <span class="s1">&#39;ts&#39;</span><span class="p">])</span>
 <span class="n">Cluster</span> <span class="o">=</span> <span class="n">namedtuple</span><span class="p">(</span><span class="s1">&#39;Cluster&#39;</span><span class="p">,</span> <span class="p">[</span><span class="s1">&#39;lat&#39;</span><span class="p">,</span> <span class="s1">&#39;lon&#39;</span><span class="p">,</span> <span class="s1">&#39;cid&#39;</span><span class="p">])</span>
@@ -199,7 +206,7 @@
 <span class="n">Base</span> <span class="o">=</span> <span class="n">declarative_base</span><span class="p">()</span>
 
 
-<span class="nd">@contextmanager</span>
+<div class="viewcode-block" id="session_scope"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.session_scope">[docs]</a><span class="nd">@contextmanager</span>
 <span class="k">def</span> <span class="nf">session_scope</span><span class="p">():</span>
     <span class="sd">&quot;&quot;&quot;Provide a transactional scope around a series of operations.&quot;&quot;&quot;</span>
     <span class="n">Session</span> <span class="o">=</span> <span class="n">sessionmaker</span><span class="p">(</span><span class="n">bind</span><span class="o">=</span><span class="n">engine</span><span class="p">)</span>
@@ -213,10 +220,10 @@
         <span class="n">session</span><span class="o">.</span><span class="n">rollback</span><span class="p">()</span>
         <span class="k">raise</span> <span class="n">e</span>
     <span class="k">finally</span><span class="p">:</span>
-        <span class="n">session</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
 
 
-<div class="viewcode-block" id="PlaceRequest"><a class="viewcode-back" href="../../index.html#gscapl.gps.PlaceRequest">[docs]</a><span class="k">class</span> <span class="nc">PlaceRequest</span><span class="p">(</span><span class="n">Base</span><span class="p">):</span>
+<div class="viewcode-block" id="PlaceRequest"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.PlaceRequest">[docs]</a><span class="k">class</span> <span class="nc">PlaceRequest</span><span class="p">(</span><span class="n">Base</span><span class="p">):</span>
     <span class="n">__tablename__</span> <span class="o">=</span> <span class="s1">&#39;apicalls&#39;</span>
 
     <span class="n">lat</span> <span class="o">=</span> <span class="n">Column</span><span class="p">(</span><span class="n">Float</span><span class="p">,</span> <span class="n">primary_key</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -306,7 +313,7 @@
 <span class="p">)</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="s1">&#39;cat&#39;</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="YelpRankBy"><a class="viewcode-back" href="../../index.html#gscapl.gps.YelpRankBy">[docs]</a><span class="k">class</span> <span class="nc">YelpRankBy</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+<div class="viewcode-block" id="YelpRankBy"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.YelpRankBy">[docs]</a><span class="k">class</span> <span class="nc">YelpRankBy</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
     <span class="n">BEST_MATCH</span> <span class="o">=</span> <span class="s1">&#39;best_match&#39;</span>
     <span class="n">RATING</span> <span class="o">=</span> <span class="s1">&#39;rating&#39;</span>
     <span class="n">REVIEW_COUNT</span> <span class="o">=</span> <span class="s1">&#39;review_count&#39;</span>
@@ -434,7 +441,7 @@
 <span class="p">)</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="s1">&#39;cat&#39;</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="GmapsRankBy"><a class="viewcode-back" href="../../index.html#gscapl.gps.GmapsRankBy">[docs]</a><span class="k">class</span> <span class="nc">GmapsRankBy</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+<div class="viewcode-block" id="GmapsRankBy"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.GmapsRankBy">[docs]</a><span class="k">class</span> <span class="nc">GmapsRankBy</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
     <span class="n">PROMINENCE</span> <span class="o">=</span> <span class="s1">&#39;prominence&#39;</span></div>
 
 
@@ -764,7 +771,7 @@
         <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="n">f</span><span class="s1">&#39;</span><span class="si">{item}</span><span class="s1"> is not a valid API source&#39;</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="ApiSource"><a class="viewcode-back" href="../../index.html#gscapl.gps.ApiSource">[docs]</a><span class="k">class</span> <span class="nc">ApiSource</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+<div class="viewcode-block" id="ApiSource"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.ApiSource">[docs]</a><span class="k">class</span> <span class="nc">ApiSource</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
     <span class="n">YELP</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
         <span class="n">name</span><span class="o">=</span><span class="s1">&#39;Yelp&#39;</span><span class="p">,</span>
         <span class="n">call</span><span class="o">=</span><span class="n">yelp_call</span><span class="p">,</span>
@@ -972,7 +979,7 @@
     <span class="k">return</span> <span class="n">records</span>
 
 
-<div class="viewcode-block" id="discrete_velocity"><a class="viewcode-back" href="../../index.html#gscapl.gps.discrete_velocity">[docs]</a><span class="k">def</span> <span class="nf">discrete_velocity</span><span class="p">(</span><span class="n">coordinate_a</span><span class="p">,</span> <span class="n">coordinate_b</span><span class="p">):</span>
+<div class="viewcode-block" id="discrete_velocity"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.discrete_velocity">[docs]</a><span class="k">def</span> <span class="nf">discrete_velocity</span><span class="p">(</span><span class="n">coordinate_a</span><span class="p">,</span> <span class="n">coordinate_b</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;converts the velocity between two points into a discrete value</span>
 
 <span class="sd">    Notes:</span>
@@ -1055,7 +1062,7 @@
     <span class="p">)</span></div>
 
 
-<div class="viewcode-block" id="estimate_home_location"><a class="viewcode-back" href="../../index.html#gscapl.gps.estimate_home_location">[docs]</a><span class="k">def</span> <span class="nf">estimate_home_location</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">parameters</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<div class="viewcode-block" id="estimate_home_location"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.estimate_home_location">[docs]</a><span class="k">def</span> <span class="nf">estimate_home_location</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">parameters</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;calculate approximate home location from GPS records</span>
 
 <span class="sd">    Args:</span>
@@ -1086,7 +1093,7 @@
         <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="p">[]</span></div>
 
 
-<div class="viewcode-block" id="estimate_work_location"><a class="viewcode-back" href="../../index.html#gscapl.gps.estimate_work_location">[docs]</a><span class="k">def</span> <span class="nf">estimate_work_location</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">parameters</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<div class="viewcode-block" id="estimate_work_location"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.estimate_work_location">[docs]</a><span class="k">def</span> <span class="nf">estimate_work_location</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">parameters</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;calculate approximate work location from GPS records</span>
 
 <span class="sd">    Args:</span>
@@ -1185,7 +1192,7 @@
     <span class="k">return</span> <span class="n">centers</span>
 
 
-<div class="viewcode-block" id="geo_pairwise_distances"><a class="viewcode-back" href="../../index.html#gscapl.gps.geo_pairwise_distances">[docs]</a><span class="k">def</span> <span class="nf">geo_pairwise_distances</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">as_array</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+<div class="viewcode-block" id="geo_pairwise_distances"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.geo_pairwise_distances">[docs]</a><span class="k">def</span> <span class="nf">geo_pairwise_distances</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">as_array</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="sd">    Args:</span>
@@ -1394,158 +1401,89 @@
         <span class="nb">print</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="n">exc_type</span><span class="p">,</span> <span class="n">fname</span><span class="p">,</span> <span class="n">exc_tb</span><span class="o">.</span><span class="n">tb_lineno</span><span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">get_cluster_times</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">clusters</span><span class="p">):</span>
-    <span class="n">records</span><span class="p">[</span><span class="s1">&#39;day&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">records</span><span class="o">.</span><span class="n">ts</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="o">.</span><span class="n">date</span><span class="p">())</span>
-    <span class="n">grouped</span> <span class="o">=</span> <span class="n">records</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">by</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;ts&#39;</span><span class="p">],</span> <span class="n">ascending</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">groupby</span><span class="p">([</span><span class="s1">&#39;day&#39;</span><span class="p">])</span>
+<span class="k">def</span> <span class="nf">get_cluster_times</span><span class="p">(</span><span class="n">records</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">cid_of_day</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">by</span><span class="o">=</span><span class="s1">&#39;ts&#39;</span><span class="p">)</span>
 
-    <span class="n">ln_c</span><span class="p">,</span> <span class="n">ln_d</span><span class="p">,</span> <span class="n">entries</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="p">[]</span>
-    <span class="k">for</span> <span class="n">yday</span><span class="p">,</span> <span class="n">group</span> <span class="ow">in</span> <span class="n">grouped</span><span class="p">:</span>
-        <span class="c1"># convert to dataframe and sort by timestamp</span>
-        <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">group</span><span class="p">)</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="s1">&#39;ts&#39;</span><span class="p">,</span> <span class="n">ascending</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-
-        <span class="n">start</span> <span class="o">=</span> <span class="n">end</span> <span class="o">=</span> <span class="n">last_c</span><span class="p">,</span> <span class="n">ts_cnt</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="mi">0</span>
-        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">r</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">df</span><span class="o">.</span><span class="n">itertuples</span><span class="p">()):</span>
-
-            <span class="c1"># if this point is assigned to a cluster</span>
-            <span class="k">if</span> <span class="n">r</span><span class="o">.</span><span class="n">cid</span> <span class="o">!=</span> <span class="s1">&#39;xNot&#39;</span><span class="p">:</span>
-                <span class="n">c</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">clusters</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">clusters</span><span class="o">.</span><span class="n">cid</span> <span class="o">==</span> <span class="n">r</span><span class="o">.</span><span class="n">cid</span><span class="p">]</span><span class="o">.</span><span class="n">itertuples</span><span class="p">())[</span><span class="mi">0</span><span class="p">]</span>
-                <span class="n">c</span> <span class="o">=</span> <span class="n">Cluster</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">lat</span><span class="p">,</span> <span class="n">c</span><span class="o">.</span><span class="n">lon</span><span class="p">,</span> <span class="n">c</span><span class="o">.</span><span class="n">cid</span><span class="p">)</span>
-
-                <span class="c1"># if a start hasn&#39;t been recorded</span>
-                <span class="k">if</span> <span class="n">start</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-
-                    <span class="c1"># either this is a continuation of the day prior</span>
-                    <span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">0</span> \
-                            <span class="ow">and</span> <span class="n">ln_c</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> \
-                            <span class="ow">and</span> <span class="n">yday</span> <span class="o">==</span> <span class="n">ln_d</span> <span class="o">+</span> <span class="mi">1</span> \
-                            <span class="ow">and</span> <span class="n">c</span><span class="o">.</span><span class="n">cid</span> <span class="o">==</span> <span class="n">ln_c</span><span class="o">.</span><span class="n">cid</span><span class="p">:</span>
-
-                        <span class="c1"># make sure this timestamp starts at midnight</span>
-                        <span class="n">start</span> <span class="o">=</span> <span class="n">end</span> <span class="o">=</span> <span class="n">GPS</span><span class="p">(</span>
-                            <span class="n">lat</span><span class="o">=</span><span class="n">c</span><span class="o">.</span><span class="n">lat</span><span class="p">,</span>
-                            <span class="n">lon</span><span class="o">=</span><span class="n">c</span><span class="o">.</span><span class="n">lon</span><span class="p">,</span>
-                            <span class="n">ts</span><span class="o">=</span><span class="n">dt</span><span class="o">.</span><span class="n">datetime</span><span class="p">(</span>
-                                <span class="n">year</span><span class="o">=</span><span class="n">r</span><span class="o">.</span><span class="n">ts</span><span class="o">.</span><span class="n">year</span><span class="p">,</span>
-                                <span class="n">month</span><span class="o">=</span><span class="n">r</span><span class="o">.</span><span class="n">ts</span><span class="o">.</span><span class="n">month</span><span class="p">,</span>
-                                <span class="n">day</span><span class="o">=</span><span class="n">r</span><span class="o">.</span><span class="n">ts</span><span class="o">.</span><span class="n">day</span><span class="p">)</span>
-                        <span class="p">)</span>
-
-                        <span class="c1"># and last night&#39;s timestamp goes to midnight</span>
-                        <span class="n">to</span> <span class="o">=</span> <span class="n">entries</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">time_out</span>
-                        <span class="n">entries</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">time_out</span> <span class="o">=</span> <span class="n">dt</span><span class="o">.</span><span class="n">datetime</span><span class="p">(</span>
-                            <span class="n">year</span><span class="o">=</span><span class="n">to</span><span class="o">.</span><span class="n">year</span><span class="p">,</span> <span class="n">month</span><span class="o">=</span><span class="n">to</span><span class="o">.</span><span class="n">month</span><span class="p">,</span> <span class="n">day</span><span class="o">=</span><span class="n">to</span><span class="o">.</span><span class="n">day</span><span class="p">,</span>
-                            <span class="n">hour</span><span class="o">=</span><span class="mi">23</span><span class="p">,</span> <span class="n">minute</span><span class="o">=</span><span class="mi">59</span><span class="p">,</span> <span class="n">second</span><span class="o">=</span><span class="mi">59</span>
-                        <span class="p">)</span>
-
-                        <span class="n">last_c</span> <span class="o">=</span> <span class="n">c</span>
-                        <span class="n">ts_cnt</span> <span class="o">+=</span> <span class="mi">1</span>
-
-                    <span class="c1"># or the subject started recording after they left</span>
-                    <span class="c1"># wherever they went to sleep or more than a day has</span>
-                    <span class="c1"># passed since the last recording</span>
-                    <span class="k">else</span><span class="p">:</span>
-                        <span class="n">start</span> <span class="o">=</span> <span class="n">end</span> <span class="o">=</span> <span class="n">r</span>
-                        <span class="n">last_c</span> <span class="o">=</span> <span class="n">c</span>
-                        <span class="n">ts_cnt</span> <span class="o">+=</span> <span class="mi">1</span>
-
-                <span class="c1"># if we&#39;re still in the same cluster reset the last position</span>
-                <span class="k">elif</span> <span class="n">last_c</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">last_c</span><span class="o">.</span><span class="n">cid</span> <span class="o">==</span> <span class="n">c</span><span class="o">.</span><span class="n">cid</span><span class="p">:</span>
-                    <span class="n">end</span> <span class="o">=</span> <span class="n">r</span>
-                    <span class="n">ts_cnt</span> <span class="o">+=</span> <span class="mi">1</span>
-
-                <span class="c1"># otherwise they&#39;ve gone to a different cluster</span>
-                <span class="k">else</span><span class="p">:</span>
-                    <span class="c1"># make sure they weren&#39;t just passing through</span>
-                    <span class="k">if</span> <span class="n">ts_cnt</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
-                        <span class="n">entries</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-                            <span class="nb">dict</span><span class="p">(</span>
-                                <span class="n">cid</span><span class="o">=</span><span class="n">last_c</span><span class="o">.</span><span class="n">cid</span><span class="p">,</span>
-                                <span class="n">time_in</span><span class="o">=</span><span class="n">start</span><span class="o">.</span><span class="n">ts</span><span class="p">,</span>
-                                <span class="n">time_out</span><span class="o">=</span><span class="n">end</span><span class="o">.</span><span class="n">ts</span><span class="p">,</span>
-                                <span class="n">lat</span><span class="o">=</span><span class="n">last_c</span><span class="o">.</span><span class="n">lat</span><span class="p">,</span>
-                                <span class="n">lon</span><span class="o">=</span><span class="n">last_c</span><span class="o">.</span><span class="n">lon</span>
-                            <span class="p">)</span>
-                        <span class="p">)</span>
-                    <span class="k">else</span><span class="p">:</span>
-                        <span class="k">pass</span>
-
-                    <span class="n">start</span> <span class="o">=</span> <span class="n">end</span> <span class="o">=</span> <span class="n">r</span>
-                    <span class="n">last_c</span> <span class="o">=</span> <span class="n">c</span>
-                    <span class="n">ts_cnt</span> <span class="o">=</span> <span class="mi">1</span>
-
-            <span class="c1"># the subject left a valid cluster</span>
-            <span class="k">elif</span> <span class="n">start</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-                <span class="k">if</span> <span class="n">ts_cnt</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
-                    <span class="n">entries</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-                        <span class="nb">dict</span><span class="p">(</span>
-                            <span class="n">cid</span><span class="o">=</span><span class="n">last_c</span><span class="o">.</span><span class="n">cid</span><span class="p">,</span>
-                            <span class="n">time_in</span><span class="o">=</span><span class="n">start</span><span class="o">.</span><span class="n">ts</span><span class="p">,</span>
-                            <span class="n">time_out</span><span class="o">=</span><span class="n">end</span><span class="o">.</span><span class="n">ts</span><span class="p">,</span>
-                            <span class="n">lat</span><span class="o">=</span><span class="n">last_c</span><span class="o">.</span><span class="n">lat</span><span class="p">,</span>
-                            <span class="n">lon</span><span class="o">=</span><span class="n">last_c</span><span class="o">.</span><span class="n">lon</span>
-                        <span class="p">)</span>
-                    <span class="p">)</span>
-                <span class="k">else</span><span class="p">:</span>
-                    <span class="k">pass</span>
-
-                <span class="n">start</span> <span class="o">=</span> <span class="n">end</span> <span class="o">=</span> <span class="n">last_c</span> <span class="o">=</span> <span class="kc">None</span>
-                <span class="n">ts_cnt</span> <span class="o">=</span> <span class="mi">0</span>
-
-            <span class="c1"># and finally, if the day started with a point that hasn&#39;t been</span>
-            <span class="c1"># assigned to cluster</span>
+        <span class="n">seen</span><span class="p">,</span> <span class="n">i</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;start&#39;</span><span class="p">],</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">xi</span> <span class="ow">in</span> <span class="n">x</span><span class="o">.</span><span class="n">iterrows</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">seen</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="n">xi</span><span class="o">.</span><span class="n">cid</span><span class="p">:</span>
+                <span class="n">seen</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">xi</span><span class="o">.</span><span class="n">cid</span><span class="p">)</span>
+                <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
             <span class="k">else</span><span class="p">:</span>
-                <span class="n">last_c</span> <span class="o">=</span> <span class="kc">None</span>
-                <span class="k">continue</span>
+                <span class="k">pass</span>
 
-        <span class="c1"># reset last-night&#39;s cluster and day</span>
-        <span class="n">ln_c</span><span class="p">,</span> <span class="n">ln_d</span> <span class="o">=</span> <span class="n">last_c</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">yday</span><span class="p">)</span>
+            <span class="n">x</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">idx</span><span class="p">,</span> <span class="s1">&#39;pos&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">i</span>
+        <span class="k">return</span> <span class="n">x</span>
 
-    <span class="n">entries</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">entries</span><span class="p">)</span>
-    <span class="n">entries</span><span class="p">[</span><span class="s1">&#39;duration&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
-        <span class="n">r</span><span class="o">.</span><span class="n">time_out</span><span class="o">-</span><span class="n">r</span><span class="o">.</span><span class="n">time_in</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">entries</span><span class="o">.</span><span class="n">itertuples</span><span class="p">()</span>
-    <span class="p">]</span>
-    <span class="n">entries</span><span class="p">[</span><span class="s1">&#39;midpoint&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
-        <span class="n">r</span><span class="o">.</span><span class="n">time_in</span> <span class="o">+</span> <span class="n">r</span><span class="o">.</span><span class="n">duration</span><span class="o">/</span><span class="mi">2</span>
-        <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">entries</span><span class="o">.</span><span class="n">itertuples</span><span class="p">()</span>
-    <span class="p">]</span>
-    <span class="n">entries</span><span class="p">[</span><span class="s1">&#39;date&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">entries</span><span class="o">.</span><span class="n">midpoint</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="k">lambda</span> <span class="n">r</span><span class="p">:</span> <span class="n">r</span><span class="o">.</span><span class="n">date</span><span class="p">())</span>
-    <span class="n">entries</span><span class="p">[</span><span class="s1">&#39;tod&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">entries</span><span class="o">.</span><span class="n">midpoint</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="k">lambda</span> <span class="n">r</span><span class="p">:</span> <span class="n">r</span><span class="o">.</span><span class="n">time</span><span class="p">())</span>
+    <span class="k">def</span> <span class="nf">collapse</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+        <span class="n">time_in</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">ts</span>
+        <span class="n">time_out</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">ts</span>
 
-    <span class="k">def</span> <span class="nf">tod_bin</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
-        <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">hour</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">()</span>
+        <span class="n">y</span><span class="p">[</span><span class="s1">&#39;time_in&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">time_in</span>
+        <span class="n">y</span><span class="p">[</span><span class="s1">&#39;time_out&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">time_out</span>
+        <span class="n">y</span><span class="p">[</span><span class="s1">&#39;n_points&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="n">y</span><span class="p">[</span><span class="s1">&#39;lat&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">lat</span><span class="o">.</span><span class="n">median</span><span class="p">()</span>
+        <span class="n">y</span><span class="p">[</span><span class="s1">&#39;lon&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">lon</span><span class="o">.</span><span class="n">median</span><span class="p">()</span>
 
-        <span class="k">if</span> <span class="n">x</span> <span class="o">&lt;</span> <span class="mi">9</span><span class="p">:</span>
-            <span class="k">return</span> <span class="s1">&#39;early_morning&#39;</span>
-        <span class="k">elif</span> <span class="mi">9</span> <span class="o">&lt;=</span> <span class="n">x</span> <span class="o">&lt;</span> <span class="mi">12</span><span class="p">:</span>
-            <span class="k">return</span> <span class="s1">&#39;morning&#39;</span>
-        <span class="k">elif</span> <span class="mi">12</span> <span class="o">&lt;=</span> <span class="n">x</span> <span class="o">&lt;</span> <span class="mi">17</span><span class="p">:</span>
-            <span class="k">return</span> <span class="s1">&#39;afternoon&#39;</span>
-        <span class="k">elif</span> <span class="mi">17</span> <span class="o">&lt;=</span> <span class="n">x</span><span class="p">:</span>
-            <span class="k">return</span> <span class="s1">&#39;evening&#39;</span>
+        <span class="k">return</span> <span class="n">y</span>
 
-    <span class="n">entries</span><span class="p">[</span><span class="s1">&#39;tod_bin&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">entries</span><span class="o">.</span><span class="n">midpoint</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">tod_bin</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">merge_nights</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">y</span><span class="p">):</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">entries</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">i</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span>
 
-    <span class="k">def</span> <span class="nf">cname</span><span class="p">(</span><span class="n">cid</span><span class="p">):</span>
-        <span class="n">c</span> <span class="o">=</span> <span class="n">clusters</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">clusters</span><span class="o">.</span><span class="n">cid</span> <span class="o">==</span> <span class="n">cid</span><span class="p">,</span> <span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+        <span class="k">if</span> <span class="n">y</span><span class="o">.</span><span class="n">pos</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">cid</span> <span class="o">==</span> <span class="n">y</span><span class="o">.</span><span class="n">cid</span> <span class="ow">and</span> <span class="n">x</span><span class="o">.</span><span class="n">date</span> <span class="o">==</span> <span class="n">y</span><span class="o">.</span><span class="n">date</span> <span class="o">-</span> <span class="n">dt</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+                <span class="c1"># adjust yesterday to end of day</span>
+                <span class="n">entries</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">i</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="s1">&#39;time_out&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dt</span><span class="o">.</span><span class="n">datetime</span><span class="p">(</span>
+                    <span class="n">year</span><span class="o">=</span><span class="n">x</span><span class="o">.</span><span class="n">time_out</span><span class="o">.</span><span class="n">year</span><span class="p">,</span> <span class="n">month</span><span class="o">=</span><span class="n">x</span><span class="o">.</span><span class="n">time_out</span><span class="o">.</span><span class="n">month</span><span class="p">,</span> <span class="n">day</span><span class="o">=</span><span class="n">x</span><span class="o">.</span><span class="n">time_out</span><span class="o">.</span><span class="n">day</span><span class="p">,</span>
+                    <span class="n">hour</span><span class="o">=</span><span class="mi">23</span><span class="p">,</span> <span class="n">minute</span><span class="o">=</span><span class="mi">59</span><span class="p">,</span> <span class="n">second</span><span class="o">=</span><span class="mi">59</span>
+                <span class="p">)</span>
 
-        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">c</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">c</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="c1"># adjust today to start of day</span>
+                <span class="n">entries</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="s1">&#39;time_in&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dt</span><span class="o">.</span><span class="n">datetime</span><span class="p">(</span>
+                    <span class="n">year</span><span class="o">=</span><span class="n">y</span><span class="o">.</span><span class="n">time_in</span><span class="o">.</span><span class="n">year</span><span class="p">,</span> <span class="n">month</span><span class="o">=</span><span class="n">y</span><span class="o">.</span><span class="n">time_in</span><span class="o">.</span><span class="n">month</span><span class="p">,</span> <span class="n">day</span><span class="o">=</span><span class="n">y</span><span class="o">.</span><span class="n">time_in</span><span class="o">.</span><span class="n">day</span>
+                <span class="p">)</span>
 
-        <span class="k">return</span> <span class="s1">&#39;err&#39;</span>
+    <span class="n">records_</span> <span class="o">=</span> <span class="n">records</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">records_</span><span class="o">.</span><span class="n">date</span> <span class="o">=</span> <span class="n">records_</span><span class="o">.</span><span class="n">date</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span>
+    <span class="n">records_</span><span class="p">[</span><span class="s1">&#39;pos&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
 
-    <span class="k">def</span> <span class="nf">ccat</span><span class="p">(</span><span class="n">cid</span><span class="p">):</span>
-        <span class="n">c</span> <span class="o">=</span> <span class="n">clusters</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">clusters</span><span class="o">.</span><span class="n">cid</span> <span class="o">==</span> <span class="n">cid</span><span class="p">,</span> <span class="s1">&#39;categories&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span>
+    <span class="c1"># for each day count the cid entry number for that day</span>
+    <span class="n">entries</span> <span class="o">=</span> <span class="n">records_</span> \
+        <span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">records_</span><span class="o">.</span><span class="n">binning</span> <span class="o">==</span> <span class="s1">&#39;stationary&#39;</span><span class="p">]</span> \
+        <span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">by</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;ts&#39;</span><span class="p">])</span> \
+        <span class="o">.</span><span class="n">groupby</span><span class="p">([</span><span class="s1">&#39;date&#39;</span><span class="p">])</span> \
+        <span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">cid_of_day</span><span class="p">)</span> \
+        <span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
-        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">c</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">c</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="c1"># groupby by that position and calcculate time intervals</span>
+    <span class="n">entries</span> <span class="o">=</span> <span class="n">entries</span><span class="o">.</span><span class="n">groupby</span><span class="p">([</span><span class="s1">&#39;date&#39;</span><span class="p">,</span> <span class="s1">&#39;pos&#39;</span><span class="p">,</span> <span class="s1">&#39;cid&#39;</span><span class="p">])</span> \
+        <span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">collapse</span><span class="p">)</span> \
+        <span class="o">.</span><span class="n">reset_index</span><span class="p">()</span>
 
-        <span class="k">return</span> <span class="s1">&#39;err&#39;</span>
+    <span class="c1"># reindex the rows</span>
+    <span class="n">entries</span> <span class="o">=</span> <span class="n">entries</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
-    <span class="k">if</span> <span class="s1">&#39;cid&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">entries</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
-        <span class="k">return</span> <span class="kc">None</span>
-    <span class="k">else</span><span class="p">:</span>
-        <span class="n">entries</span><span class="p">[</span><span class="s1">&#39;cname&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">entries</span><span class="o">.</span><span class="n">cid</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">cname</span><span class="p">)</span>
-        <span class="n">entries</span><span class="p">[</span><span class="s1">&#39;category&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">entries</span><span class="o">.</span><span class="n">cid</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="n">ccat</span><span class="p">)</span>
+    <span class="c1"># set back to correct datatype</span>
+    <span class="n">entries</span><span class="o">.</span><span class="n">date</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">to_datetime</span><span class="p">(</span><span class="n">entries</span><span class="o">.</span><span class="n">date</span><span class="p">)</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="o">.</span><span class="n">date</span><span class="p">())</span>
+
+    <span class="c1"># adjust night and morning timestamps if the cids match across midnight</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">y</span> <span class="ow">in</span> <span class="n">entries</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="nb">len</span><span class="p">(</span><span class="n">entries</span><span class="p">)]</span><span class="o">.</span><span class="n">iterrows</span><span class="p">():</span>
+        <span class="n">merge_nights</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>
+
+    <span class="n">entries</span><span class="p">[</span><span class="s1">&#39;duration&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">entries</span><span class="p">[</span><span class="s1">&#39;time_out&#39;</span><span class="p">]</span> <span class="o">-</span> <span class="n">entries</span><span class="p">[</span><span class="s1">&#39;time_in&#39;</span><span class="p">])</span><span class="o">.</span><span class="n">dt</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="s1">&#39;1s&#39;</span><span class="p">)</span>
+    <span class="n">entries</span><span class="p">[</span><span class="s1">&#39;midpoint&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">entries</span><span class="p">[</span><span class="s1">&#39;time_in&#39;</span><span class="p">]</span> <span class="o">+</span> <span class="n">entries</span><span class="p">[</span><span class="s1">&#39;duration&#39;</span><span class="p">]</span> <span class="o">/</span> <span class="mi">2</span><span class="p">)</span><span class="o">.</span><span class="n">dt</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="s1">&#39;1s&#39;</span><span class="p">)</span>
+    <span class="n">entries</span><span class="p">[</span><span class="s1">&#39;tod&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">entries</span><span class="o">.</span><span class="n">midpoint</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="o">.</span><span class="n">time</span><span class="p">())</span>
+
+    <span class="c1"># reindex the columns</span>
+    <span class="n">entries</span> <span class="o">=</span> <span class="n">entries</span><span class="o">.</span><span class="n">reindex</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">[</span>
+        <span class="s1">&#39;cid&#39;</span><span class="p">,</span> <span class="s1">&#39;date&#39;</span><span class="p">,</span> <span class="s1">&#39;tod&#39;</span><span class="p">,</span> <span class="s1">&#39;tod_bin&#39;</span><span class="p">,</span> <span class="s1">&#39;time_in&#39;</span><span class="p">,</span> <span class="s1">&#39;midpoint&#39;</span><span class="p">,</span>
+        <span class="s1">&#39;time_out&#39;</span><span class="p">,</span> <span class="s1">&#39;duration&#39;</span><span class="p">,</span> <span class="s1">&#39;pos&#39;</span><span class="p">,</span> <span class="s1">&#39;n_points&#39;</span><span class="p">,</span> <span class="s1">&#39;lat&#39;</span><span class="p">,</span> <span class="s1">&#39;lon&#39;</span>
+    <span class="p">])</span>
+
+    <span class="c1"># add the local timezone</span>
+    <span class="n">entries</span><span class="p">[</span><span class="s1">&#39;local_tz&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">tz_from_dd</span><span class="p">(</span><span class="n">entries</span><span class="p">[[</span><span class="s1">&#39;lat&#39;</span><span class="p">,</span> <span class="s1">&#39;lon&#39;</span><span class="p">]])</span>
 
     <span class="k">return</span> <span class="n">entries</span>
 
@@ -1758,7 +1696,7 @@
     <span class="k">return</span> <span class="n">records</span><span class="p">,</span> <span class="n">clusters</span>
 
 
-<div class="viewcode-block" id="gps_dbscan"><a class="viewcode-back" href="../../index.html#gscapl.gps.gps_dbscan">[docs]</a><span class="k">def</span> <span class="nf">gps_dbscan</span><span class="p">(</span><span class="n">gps_records</span><span class="p">,</span> <span class="n">parameters</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<div class="viewcode-block" id="gps_dbscan"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.gps_dbscan">[docs]</a><span class="k">def</span> <span class="nf">gps_dbscan</span><span class="p">(</span><span class="n">gps_records</span><span class="p">,</span> <span class="n">parameters</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;perform DBSCAN and return cluster with most number of components</span>
 <span class="sd">    http://scikit-learn.org/stable/modules/generated/sklearn.cluster.DBSCAN.html</span>
 
@@ -1795,7 +1733,7 @@
     <span class="k">return</span> <span class="n">records</span>
 
 
-<div class="viewcode-block" id="impute_between"><a class="viewcode-back" href="../../index.html#gscapl.gps.impute_between">[docs]</a><span class="k">def</span> <span class="nf">impute_between</span><span class="p">(</span><span class="n">coordinate_a</span><span class="p">,</span> <span class="n">coordinate_b</span><span class="p">,</span> <span class="n">freq</span><span class="p">):</span>
+<div class="viewcode-block" id="impute_between"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.impute_between">[docs]</a><span class="k">def</span> <span class="nf">impute_between</span><span class="p">(</span><span class="n">coordinate_a</span><span class="p">,</span> <span class="n">coordinate_b</span><span class="p">,</span> <span class="n">freq</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="sd">    Args:</span>
@@ -1837,7 +1775,7 @@
     <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">t</span><span class="p">)</span></div>
 
 
-<div class="viewcode-block" id="impute_stationary_coordinates"><a class="viewcode-back" href="../../index.html#gscapl.gps.impute_stationary_coordinates">[docs]</a><span class="k">def</span> <span class="nf">impute_stationary_coordinates</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">freq</span><span class="o">=</span><span class="s1">&#39;10Min&#39;</span><span class="p">,</span> <span class="n">metrics</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+<div class="viewcode-block" id="impute_stationary_coordinates"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.impute_stationary_coordinates">[docs]</a><span class="k">def</span> <span class="nf">impute_stationary_coordinates</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">freq</span><span class="o">=</span><span class="s1">&#39;10Min&#39;</span><span class="p">,</span> <span class="n">metrics</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;resample a stream of `gps_records` boosting the number of points</span>
 <span class="sd">    spent at stationary positions. This method is used due to to how the</span>
 <span class="sd">    data were collected. GPS coordinates were recorded at either 15min</span>
@@ -1850,6 +1788,7 @@
 <span class="sd">        records: (DataFrame)</span>
 <span class="sd">        freq: (str)</span>
 <span class="sd">        metrics: (bool)</span>
+<span class="sd">        verbose:</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        [GPS]</span>
@@ -1958,6 +1897,66 @@
     <span class="k">return</span> <span class="n">resampled</span>
 
 
+<span class="k">def</span> <span class="nf">prep_takeout_data</span><span class="p">(</span><span class="n">file_name</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">arow</span><span class="p">(</span><span class="n">args</span><span class="p">):</span>
+        <span class="n">idx</span><span class="p">,</span> <span class="n">row</span> <span class="o">=</span> <span class="n">args</span>
+
+        <span class="n">j_</span> <span class="o">=</span> <span class="n">js</span><span class="o">.</span><span class="n">activity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+        <span class="n">pbar</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">j_</span><span class="p">,</span> <span class="nb">float</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">j_</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">j_</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s1">&#39;activity&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="s1">&#39;type&#39;</span><span class="p">]</span>
+            <span class="k">except</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_name</span><span class="p">,</span> <span class="s1">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">js</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+    <span class="n">js</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">js</span><span class="p">[</span><span class="s1">&#39;locations&#39;</span><span class="p">])</span>
+
+    <span class="k">if</span> <span class="s1">&#39;verticalAccuracy&#39;</span> <span class="ow">in</span> <span class="n">js</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+        <span class="n">js</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="s1">&#39;verticalAccuracy&#39;</span><span class="p">,</span> <span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="s1">&#39;altitude&#39;</span> <span class="ow">in</span> <span class="n">js</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+        <span class="n">js</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="s1">&#39;altitude&#39;</span><span class="p">,</span> <span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="s1">&#39;heading&#39;</span> <span class="ow">in</span> <span class="n">js</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+        <span class="n">js</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="s1">&#39;heading&#39;</span><span class="p">,</span> <span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="s1">&#39;velocity&#39;</span> <span class="ow">in</span> <span class="n">js</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+        <span class="n">js</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="s1">&#39;velocity&#39;</span><span class="p">,</span> <span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="n">js</span><span class="p">[</span><span class="s1">&#39;accuracy_ok&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">js</span><span class="o">.</span><span class="n">accuracy</span> <span class="o">&lt;</span> <span class="mi">150</span>
+
+    <span class="n">js</span><span class="o">.</span><span class="n">timestampMs</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">to_datetime</span><span class="p">(</span><span class="n">js</span><span class="o">.</span><span class="n">timestampMs</span><span class="p">,</span> <span class="n">unit</span><span class="o">=</span><span class="s1">&#39;ms&#39;</span><span class="p">)</span>
+
+    <span class="n">js</span><span class="o">.</span><span class="n">latitudeE7</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">js</span><span class="o">.</span><span class="n">latitudeE7</span><span class="o">/</span><span class="mf">10e6</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+    <span class="n">js</span><span class="o">.</span><span class="n">longitudeE7</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">js</span><span class="o">.</span><span class="n">longitudeE7</span><span class="o">/</span><span class="mf">10e6</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+
+    <span class="n">js</span><span class="p">[</span><span class="s1">&#39;date&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">js</span><span class="o">.</span><span class="n">timestampMs</span><span class="o">.</span><span class="n">progress_apply</span><span class="p">(</span><span class="n">dt</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">date</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="s1">&#39;activity&#39;</span> <span class="ow">in</span> <span class="n">js</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
+        <span class="n">pool</span> <span class="o">=</span> <span class="n">TPool</span><span class="p">(</span><span class="n">mul</span><span class="o">.</span><span class="n">cpu_count</span><span class="p">())</span>
+
+        <span class="n">pbar</span> <span class="o">=</span> <span class="n">tqdm</span><span class="p">(</span><span class="n">total</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">js</span><span class="p">))</span>
+
+        <span class="n">js</span><span class="o">.</span><span class="n">activity</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">pool</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">arow</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">js</span><span class="o">.</span><span class="n">iterrows</span><span class="p">())))</span>
+
+        <span class="n">pool</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="n">pool</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+
+    <span class="n">js</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;latitudeE7&#39;</span><span class="p">:</span> <span class="s1">&#39;lat&#39;</span><span class="p">,</span> <span class="s1">&#39;longitudeE7&#39;</span><span class="p">:</span> <span class="s1">&#39;lon&#39;</span><span class="p">,</span> <span class="s1">&#39;timestampMs&#39;</span><span class="p">:</span> <span class="s1">&#39;ts&#39;</span><span class="p">},</span> <span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="n">js</span> <span class="o">=</span> <span class="n">js</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">by</span><span class="o">=</span><span class="s1">&#39;ts&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">js</span>
+
+
 <span class="k">def</span> <span class="nf">__geo_distance_wrapper</span><span class="p">(</span><span class="n">args</span><span class="p">):</span>
     <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="n">args</span>
     <span class="k">return</span> <span class="n">geo_distance</span><span class="p">(</span><span class="o">*</span><span class="n">a</span><span class="p">,</span> <span class="o">*</span><span class="n">b</span><span class="p">)</span>
@@ -1998,8 +1997,8 @@
         <span class="k">pass</span>
 
     <span class="c1"># set default values if the dictionary didn&#39;t contain correct keys</span>
-    <span class="n">eps</span> <span class="o">=</span> <span class="mf">0.001</span> <span class="k">if</span> <span class="n">eps</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">eps</span>
-    <span class="n">min_samples</span> <span class="o">=</span> <span class="mi">2</span> <span class="k">if</span> <span class="n">min_samples</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">min_samples</span>
+    <span class="n">eps</span> <span class="o">=</span> <span class="mf">0.005</span> <span class="k">if</span> <span class="n">eps</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">eps</span>
+    <span class="n">min_samples</span> <span class="o">=</span> <span class="mi">100</span> <span class="k">if</span> <span class="n">min_samples</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">min_samples</span>
     <span class="n">metric</span> <span class="o">=</span> <span class="s1">&#39;euclidean&#39;</span> <span class="k">if</span> <span class="n">metric</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">metric</span>
     <span class="n">n_jobs</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span> <span class="k">if</span> <span class="n">n_jobs</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">n_jobs</span>
 

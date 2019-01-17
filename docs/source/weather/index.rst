@@ -6,5 +6,5 @@ Weather
    :caption: Contents:
 
 .. automodule:: gscapl.weather
-   :members: weather_report
+   :members: CONNECTION_RESET_ATTEMPTS, CONNECTION_WAIT_TIME, weather_report
    :member-order: bysource
