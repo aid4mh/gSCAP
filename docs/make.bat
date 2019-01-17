@@ -16,6 +16,9 @@ rem delete existing
 rd /s /q _modules
 rd /s /q _sources
 rd /s /q _static
+rd /s /q gps
+rd /s /q utils
+rd /s /q weather
 del .buildinfo
 del genindex.html
 del index.html

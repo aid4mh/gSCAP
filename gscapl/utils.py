@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 
-""" A collection of data processing scripts """
-
-import datetime as dt
-from multiprocessing import Manager, Queue, Process
-import re
+""" A collection of common scripts imported by both `gscap.gps' and
+`gscap.weather`. They are used extensively throughout both of those modules
+but have plenty of use cases for every day use!
+"""
 from pathlib import Path
 import os
 import sys
@@ -55,35 +54,15 @@ ztree = KDTree(zips[['lat', 'lon']].values)
 del zname
 
 
-def as_pydate(date):
-    ismil = True
-
-    if any(s in date for s in ['a.m.', 'AM', 'a. m.']):
-        date = re.sub(r'(a.m.|a. m.|AM)', '', date).strip()
-
-    if any(s in date for s in ['p.m.', 'p. m.', 'PM']):
-        date = re.sub(r'(p.m.|p. m.|PM)', '', date).strip()
-        ismil = False
-
-    if '/' in date:
-        date = re.sub('/', '-', date)
-
-    try:
-        date = dt.datetime.strptime(date, '%d-%m-%y %H:%M')
-
-    except ValueError as e:
-        argstr = ''.join(e.args)
-
-        if ':' in argstr:
-            date = dt.datetime.strptime(date, '%d-%m-%y %H:%M:%S')
-        else:
-            raise e
-
-    date = date + dt.timedelta(hours=12) if not ismil else date
-    return date
-
-
 def isint(x):
+    """Determine if provided object is convertible to an int
+
+    Args:
+        x: object
+
+    Returns:
+        bool
+    """
     if x is None:
         return False
 
@@ -95,6 +74,14 @@ def isint(x):
 
 
 def isfloat(x):
+    """Determine if provided object is convertible to a float
+
+    Args:
+        x: object
+
+    Returns:
+        bool
+    """
     if x is None:
         return False
 
@@ -106,7 +93,17 @@ def isfloat(x):
 
 
 def dd_from_zip(zipcode):
+    """Get the latitude and longitude coordinate pair for the center of the provided zipcode
+
+    Args:
+        zipcode: (int | str)
+
+    Returns:
+        (float, float)
+    """
     try:
+        zipcode = check_zipcode_type(zipcode)
+
         lat = zips.loc[zipcode].lat.values[0]
         lon = zips.loc[zipcode].lon.values[0]
         return lat, lon
@@ -115,10 +112,26 @@ def dd_from_zip(zipcode):
 
 
 def zip_from_dd(lat, lon, maxd=sys.maxsize, suppress_warnings=False):
-    if not isinstance(lat, float) or not isinstance(lon, float) or not isinstance(maxd, (float, int)):
+    """Get the closest zipcode to a latitude, longitude coordinate pair
+
+    Args:
+        lat: float - Latitude in degree-decimal (DD) format
+        lon: float - Longitude in degree-decimal (DD) format
+        maxd: (optional) float - Maximum distance in kilometers for which to return a result
+        suppress_warnings: (optional) bool - set to True to suppress distance to zipcode warnings
+
+    Returns:
+        int - the zipcode found or -1 if not
+
+    Raises:
+        TypeError if and of lat, lon, or maxd is not an int or float
+    """
+    if not isinstance(lat, (float, int)) or not isinstance(lon, (float, int)) or not isinstance(maxd, (float, int)):
         raise TypeError('lat, lon and maxdistance must be ints or floats')
+
+    lat_lon_range_check(lat, lon)
+
     try:
-        # get closest zip within 7 miles
         nearest = ztree.query(
             (lat, lon),
             k=1,
@@ -126,10 +139,10 @@ def zip_from_dd(lat, lon, maxd=sys.maxsize, suppress_warnings=False):
         )
         if not suppress_warnings:
             if nearest[0] == float('inf'):
-                print(f'WARNING: zipcode not found within {maxd} of {lat}, {lon}.')
+                print(f'WARNING: zipcode not found within {maxd}Km of ({lat}, {lon})')
                 return -1
             elif nearest[0] > 100:
-                print(f'WARNING: closest zipcode found was {nearest[0]} km from {lat}, {lon}.')
+                print(f'WARNING: closest zipcode found was {np.round(nearest[0], 1)}Km from ({lat}, {lon})')
             else:
                 pass
         else:
@@ -141,6 +154,14 @@ def zip_from_dd(lat, lon, maxd=sys.maxsize, suppress_warnings=False):
 
 
 def tz_from_dd(points):
+    """Get the timezone for a coordinate pair
+
+    Args:
+        points: (lat, lon) | [(lat, lon),] | pd.DataFrame w/lat and lon as columns
+
+    Returns:
+        np.array
+    """
     if isinstance(points, pd.DataFrame):
         points = points.values.tolist()
 
@@ -153,8 +174,21 @@ def tz_from_dd(points):
 
 
 def tz_from_zip(zipcode):
+    """Get the timezone from a zipcode
+
+    Args:
+        zipcode: str|int | [str|int,] | pd.Series
+
+    Returns:
+        np.array
+    """
+    if isinstance(zipcode, pd.Series):
+        zipcode = zipcode.tolist()
+
     if not isinstance(zipcode, list):
         zipcode = [zipcode]
+    else:
+        pass
 
     points = [dd_from_zip(zc) for zc in zipcode]
     return tz_from_dd(points)
@@ -187,129 +221,27 @@ def geo_distance(lat1, lon1, lat2, lon2):
     return r*c*1000
 
 
-def progress_bar(pbar):
-    """progress bar to track parallel events
-    Args:
-        total: (int) total number of tasks to complete
-        desc: (str) optional title to progress bar
-    Returns:
-        (Process, Queue)
-    """
-    proc_manager = Manager()
-
-    def track_it(pbar, trackq):
-        idx = 0
-
-        while True:
-            try:
-                update = trackq.get()
-
-                if update is None:
-                    break
-
-            except EOFError:
-
-                break
-
-            pbar.update(update)
-            idx += 1
-
-    trackq = proc_manager.Queue()
-    p = Process(target=track_it, args=(pbar, trackq))
-    p.start()
-
-    return p, trackq
-
-
-def pcmap(func, vals, n_cons, pbar=False, **kwargs):
-    """parallel mapping function into producer-consumer pattern
-    Args:
-        func: (Function) function to apply
-        vals: [Object] values to apply
-        n_cons: (int) number of consumers to start
-        pbar: (bool)
-
-    Returns:
-        [Object] list of mapped function return values
-    """
-    if pbar:
-        total = len(vals)
-        desc = kwargs.get('desc')
-
-        pbar, trac_qu = progress_bar(total, desc)
-    else:
-        pbar, trac_qu = None, None
-
-    def consumer(c_qu, r_qu, func):
-        """consumer, terminate on receiving 'END' flag
-        Args:
-            c_qu: (Queue) consumption queue
-            r_qu: (Queue) results queue
-        """
-        while True:
-            val = c_qu.get()
-
-            if isinstance(val, str) and val == 'END':
-                break
-
-            rv = func(val)
-            r_qu.put(rv)
-
-        r_qu.put('END')
-
-    # create queues to pass tasks and results
-    consumption_queue = Queue()
-    results_queue = Queue()
-
-    # setup the consumers
-    consumers = [
-        Process(target=consumer, args=(
-            consumption_queue,
-            results_queue,
-            func
-        ))
-        for i in range(n_cons)
-    ]
-
-    # start the consumption processes
-    [c.start() for c in consumers]
-
-    # dish out tasks and add the termination flag
-    [consumption_queue.put(val) for val in vals]
-    [consumption_queue.put('END') for c in consumers]
-
-    # turn the results into a list
-    running, brake, results = n_cons, False, []
-    while not brake:
-        while not results_queue.empty():
-            val = results_queue.get()
-
-            if isinstance(val, str) and val == 'END':
-                running -= 1
-
-                if running == 0:
-                    brake = True
-            else:
-                if trac_qu is not None:
-                    trac_qu.put(1)
-                else:
-                    pass
-
-                results.append(val)
-
-    # kill and delete all consumers
-    [c.terminate() for c in consumers]
-    del consumers
-
-    # kill the progress bar
-    if pbar is not None:
-        pbar.terminate()
-        pbar.join()
-        del pbar, trac_qu
+def check_zipcode_type(zipcode):
+    if not isinstance(zipcode, (str, int, float)) or \
+            isinstance(zipcode, str) and not isint(zipcode):
+        raise TypeError
+    elif isinstance(zipcode, (str, float)):
+        zipcode = int(float(zipcode))
     else:
         pass
 
-    return results
+    if zipcode < 0:
+        raise ValueError
+
+    return zipcode
+
+
+def lat_lon_range_check(lat, lon):
+    if -90 > lat or lat > 90:
+        raise ValueError('Latitude must be in valid range: -90 < lat < 90.')
+
+    if -180 > lon or lon > 180:
+        raise ValueError('Longitude must be in valid range: -180 < lon < 180.')
 
 
 if __name__ == '__main__':
