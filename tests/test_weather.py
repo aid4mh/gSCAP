@@ -1,13 +1,13 @@
 import datetime as dt
 import multiprocessing as mul
-from requests.exceptions import ConnectionError
-import responses
 import os
 from sqlite3 import dbapi2 as sqlite
-from unittest import TestCase
+from unittest import skip, TestCase
 
 import numpy as np
 import pandas as pd
+from requests.exceptions import ConnectionError
+import responses
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.session import Session
@@ -326,10 +326,11 @@ class TestWeather(TestCase):
         ))
         self.assertTrue(t['hits'] == 1 and t['misses'] == 0)
 
+    @skip
     @responses.activate
-    def test_process_request_from_mock(self):
+    def test_process_request(self):
         with open('mock_darksky_response', 'r') as f:
-            mock_response = f.readline()
+            mock_response = f.read()
 
         key = wthr.CONFIG['DarkSkyAPI']
         lat = np.round(self.lat, 1)
