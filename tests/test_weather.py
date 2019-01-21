@@ -1,4 +1,3 @@
-from collections import namedtuple
 import datetime as dt
 import multiprocessing as mul
 from requests.exceptions import ConnectionError

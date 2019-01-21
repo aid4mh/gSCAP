@@ -26,7 +26,14 @@ __status__ = 'development'
 """check for config file"""
 config_file = os.path.join(Path.home(), '.gscapConfig')
 if not os.path.exists(config_file):
-    print('configuration file not found')
+    print('GSCAP configuration file not found. In order to use API wrappers a configuration file named .gscapConfig '
+          'must live in your home directory. See the docs for more details.')
+
+    CONFIG = dict(
+        GooglePlacesAPI='none',
+        YelpAPI='none',
+        DarkSkyAPI='none'
+    )
 else:
     with open(config_file, 'r') as f:
         cf = f.readlines()
