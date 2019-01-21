@@ -89,6 +89,8 @@ class TestWeather(TestCase):
             self.session.delete(ti)
         self.session.commit()
 
+        responses.reset()
+
     def test_verify_zipcode_date_request(self):
         request = (self.zipcode, self.day)
         request = wthr.verify_zipcode_date_request(request)
@@ -415,16 +417,20 @@ class TestWeather(TestCase):
 
     @responses.activate
     def test_process_request_darksky_failed(self):
-        key = wthr.CONFIG['DarkSkyAPI']
         lat = np.round(self.lat, 1)
         lon = np.round(self.lon, 1)
-        url = f'https://api.darksky.net/forecast/{key}/32.4,-84.9,1115319600'
 
-        responses.add(
-            responses.GET,
-            url,
-            status=404
-        )
+        key = wthr.CONFIG['DarkSkyAPI']
+
+        for url in [
+            f'https://api.darksky.net/forecast/{key}/32.4,-84.9,1115319600',
+            f'https://api.darksky.net/forecast/{key}/32.4,-84.9,1115294400'
+        ]:
+            responses.add(
+                responses.GET,
+                url,
+                status=404
+            )
 
         proqu, reqque, resque = mul.Queue(), mul.Queue(), mul.Queue()
         req = wthr.WeatherRequest(
