@@ -331,7 +331,11 @@ class TestWeather(TestCase):
 
     @responses.activate
     def test_process_request(self):
-        with open('mock_darksky_response', 'r') as f:
+        fn = 'mock_darksky_response'
+        if not os.path.exists(fn):
+            fn = os.path.join('tests', fn)
+
+        with open(fn, 'r') as f:
             mock_response = f.read()
 
         key = wthr.CONFIG['DarkSkyAPI']
