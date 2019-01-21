@@ -4,15 +4,16 @@
 
 from collections import namedtuple
 from contextlib import contextmanager
+import datetime as dt
 from enum import Enum
 import json
 import multiprocessing as mul
 from multiprocessing.dummy import Pool as TPool
+import re
 import requests
-from sqlite3 import dbapi2 as sqlite
-import sys
-import time
 from requests.exceptions import ConnectionError
+from sqlite3 import dbapi2 as sqlite
+import time
 
 import googlemaps
 from scipy.stats import mode
