@@ -121,6 +121,7 @@ class TestWeather(TestCase):
             for i in request
         ))
 
+    @responses.activate
     def test_hourly_weather_report_ll(self):
         hwr = wthr.HourlyWeatherReport(
             lat=self.lat, lon=self.lon, date=self.day, time=self.time
@@ -138,6 +139,7 @@ class TestWeather(TestCase):
         self.assertTrue(isinstance(report.get('report'), pd.DataFrame))
         self.assertTrue(report.get('report').shape is not (0, 0))
 
+    @responses.activate
     def test_hourly_weather_report_no_summary(self):
         hwr = wthr.HourlyWeatherReport(
             lat=self.lat, lon=self.lon, date=self.day, time=self.time
@@ -298,6 +300,7 @@ class TestWeather(TestCase):
 
         self.assertRaises(ValueError, wthr.verify_request, (9,))
 
+    @responses.activate
     def test_process_request_from_cache(self):
         hwr = wthr.HourlyWeatherReport(
             lat=self.lat, lon=self.lon, date=self.day, time=self.time
@@ -339,7 +342,6 @@ class TestWeather(TestCase):
         responses.add(
             responses.GET,
             url,
-            content_type='application/json',
             body=mock_response,
             status=200
         )
@@ -363,6 +365,17 @@ class TestWeather(TestCase):
         self.assertTrue(t['misses'] == 1 and t['hits'] == 0)
         self.assertTrue(isinstance(t['report'], pd.DataFrame))
         self.assertTrue(len(t['report']) == 24)
+
+        def empty_and_close(qu):
+            while not qu.empty():
+                qu.get()
+            qu.close()
+
+        empty_and_close(proqu)
+        empty_and_close(reqque)
+        empty_and_close(resque)
+
+        del proqu, reqque, resque
 
     @responses.activate
     def test_process_request_raises_connection_error(self):
