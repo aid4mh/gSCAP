@@ -140,13 +140,6 @@ class TestWeather(TestCase):
         self.session.add(hwr)
         self.session.commit()
 
-        responses.add(
-            responses.GET,
-            'https://api.darksky.net/forecast/none/32.4,-84.9,1115294400',
-            body=self.mock_darksy(),
-            status=200
-        )
-
         report = wthr.weather_report(self.wrequest_ll, kwargs=self.cache_kwargs)
 
         self.assertTrue(report is not None)
@@ -157,20 +150,12 @@ class TestWeather(TestCase):
         self.assertTrue(isinstance(report.get('report'), pd.DataFrame))
         self.assertTrue(report.get('report').shape is not (0, 0))
 
-    @responses.activate
     def test_hourly_weather_report_no_summary(self):
         hwr = wthr.HourlyWeatherReport(
             lat=self.lat, lon=self.lon, date=self.day, time=self.time
         )
         self.session.add(hwr)
         self.session.commit()
-
-        responses.add(
-            responses.GET,
-            'https://api.darksky.net/forecast/none/32.4,-84.9,1115294400',
-            body=self.mock_darksy(),
-            status=200
-        )
 
         report = wthr.weather_report(self.wrequest_ll, summarize='none', kwargs=self.cache_kwargs)
         self.assertTrue(report is not None)
@@ -325,7 +310,6 @@ class TestWeather(TestCase):
 
         self.assertRaises(ValueError, wthr.verify_request, (9,))
 
-    @responses.activate
     def test_process_request_from_cache(self):
         hwr = wthr.HourlyWeatherReport(
             lat=self.lat, lon=self.lon, date=self.day, time=self.time
