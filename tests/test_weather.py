@@ -33,9 +33,6 @@ class TestWeather(TestCase):
         cls.lon = -84.90685
         cls.zipcode = 31905
 
-        cls.wrequest_ll = (cls.day, cls.lat, cls.lon)
-        cls.wrequest_zc = (cls.day, 98115)
-
         cls.wrows = pd.DataFrame(
             {k: np.nan for k in wthr.HOURLY_COLS},
             index=[0]
@@ -52,6 +49,9 @@ class TestWeather(TestCase):
         cls.session = sessionmaker(bind=engine)()
 
         cls.cache_kwargs = {'engine': cls.wcname}
+
+        wthr.CONNECTION_RESET_ATTEMPTS = 1
+        wthr.CONNECTION_WAIT_TIME = 0
 
     @classmethod
     def del_cache(cls):
@@ -140,7 +140,7 @@ class TestWeather(TestCase):
         self.session.add(hwr)
         self.session.commit()
 
-        report = wthr.weather_report(self.wrequest_ll, kwargs=self.cache_kwargs)
+        report = wthr.weather_report((self.lat, self.lon, self.day), kwargs=self.cache_kwargs)
 
         self.assertTrue(report is not None)
         self.assertTrue(isinstance(report, dict))
@@ -150,6 +150,7 @@ class TestWeather(TestCase):
         self.assertTrue(isinstance(report.get('report'), pd.DataFrame))
         self.assertTrue(report.get('report').shape is not (0, 0))
 
+    @responses.activate
     def test_hourly_weather_report_no_summary(self):
         hwr = wthr.HourlyWeatherReport(
             lat=self.lat, lon=self.lon, date=self.day, time=self.time
@@ -157,7 +158,7 @@ class TestWeather(TestCase):
         self.session.add(hwr)
         self.session.commit()
 
-        report = wthr.weather_report(self.wrequest_ll, summarize='none', kwargs=self.cache_kwargs)
+        report = wthr.weather_report((self.lat, self.lon, self.day), summarize='none', kwargs=self.cache_kwargs)
         self.assertTrue(report is not None)
         self.assertTrue(isinstance(report, dict))
         self.assertTrue(
@@ -341,16 +342,20 @@ class TestWeather(TestCase):
     @responses.activate
     def test_process_request(self):
         key = wthr.CONFIG['DarkSkyAPI']
+
+        for url in [
+            f'https://api.darksky.net/forecast/{key}/32.4,-84.9,1115319600',
+            f'https://api.darksky.net/forecast/{key}/32.4,-84.9,1115294400'
+        ]:
+            responses.add(
+                responses.GET,
+                url,
+                body=self.mock_darksy(),
+                status=200
+            )
+
         lat = np.round(self.lat, 1)
         lon = np.round(self.lon, 1)
-        url = f'https://api.darksky.net/forecast/{key}/32.4,-84.9,1115319600'
-
-        responses.add(
-            responses.GET,
-            url,
-            body=self.mock_darksy(),
-            status=200
-        )
 
         proqu, reqque, resque = mul.Queue(), mul.Queue(), mul.Queue()
         req = wthr.WeatherRequest(
@@ -385,9 +390,6 @@ class TestWeather(TestCase):
 
     @responses.activate
     def test_process_request_raises_connection_error(self):
-        wthr.CONNECTION_RESET_ATTEMPTS = 1
-        wthr.CONNECTION_WAIT_TIME = 0
-
         key = wthr.CONFIG['DarkSkyAPI']
         lat = np.round(self.lat, 1)
         lon = np.round(self.lon, 1)
