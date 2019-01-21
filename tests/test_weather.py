@@ -60,6 +60,17 @@ class TestWeather(TestCase):
             os.remove(fn)
 
     @classmethod
+    def mock_darksy(cls):
+        fn = 'mock_darksky_response'
+        if not os.path.exists(fn):
+            fn = os.path.join('tests', fn)
+
+        with open(fn, 'r') as f:
+            mock_response = f.read()
+
+        return mock_response
+
+    @classmethod
     def tearDownClass(cls):
         """perform when all tests are complete
         """
@@ -129,6 +140,13 @@ class TestWeather(TestCase):
         self.session.add(hwr)
         self.session.commit()
 
+        responses.add(
+            responses.GET,
+            'https://api.darksky.net/forecast/none/32.4,-84.9,1115294400',
+            body=self.mock_darksy(),
+            status=200
+        )
+
         report = wthr.weather_report(self.wrequest_ll, kwargs=self.cache_kwargs)
 
         self.assertTrue(report is not None)
@@ -146,6 +164,13 @@ class TestWeather(TestCase):
         )
         self.session.add(hwr)
         self.session.commit()
+
+        responses.add(
+            responses.GET,
+            'https://api.darksky.net/forecast/none/32.4,-84.9,1115294400',
+            body=self.mock_darksy(),
+            status=200
+        )
 
         report = wthr.weather_report(self.wrequest_ll, summarize='none', kwargs=self.cache_kwargs)
         self.assertTrue(report is not None)
@@ -331,13 +356,6 @@ class TestWeather(TestCase):
 
     @responses.activate
     def test_process_request(self):
-        fn = 'mock_darksky_response'
-        if not os.path.exists(fn):
-            fn = os.path.join('tests', fn)
-
-        with open(fn, 'r') as f:
-            mock_response = f.read()
-
         key = wthr.CONFIG['DarkSkyAPI']
         lat = np.round(self.lat, 1)
         lon = np.round(self.lon, 1)
@@ -346,7 +364,7 @@ class TestWeather(TestCase):
         responses.add(
             responses.GET,
             url,
-            body=mock_response,
+            body=self.mock_darksy(),
             status=200
         )
 
