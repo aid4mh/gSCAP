@@ -326,7 +326,6 @@ class TestWeather(TestCase):
         ))
         self.assertTrue(t['hits'] == 1 and t['misses'] == 0)
 
-    @skip
     @responses.activate
     def test_process_request(self):
         with open('mock_darksky_response', 'r') as f:

@@ -36,10 +36,10 @@ __status__ = 'development'
 """ Dark Sky API url """
 DARK_SKY_URL = 'https://api.darksky.net/forecast'
 
-CONNECTION_RESET_ATTEMPTS = 99
+CONNECTION_RESET_ATTEMPTS = 3
 """How many times to retry a network timeout """
 
-CONNECTION_WAIT_TIME = 60
+CONNECTION_WAIT_TIME = 3
 """Seconds to wait between each failed network attempt"""
 
 """Dark Sky hourly call columns"""
