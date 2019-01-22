@@ -64,11 +64,19 @@ class TestGPS(TestCase):
 
     @property
     def clusters(self):
-        return pd.read_csv('some_clusters.csv')
+        fn = 'some_clusters.csv'
+        if not os.path.exists(fn):
+            fn = os.path.join('tests', fn)
+
+        return pd.read_csv(fn)
 
     @property
     def entries(self):
-        df = pd.read_csv('some_entries.csv', parse_dates=[
+        fn = 'some_entries.csv'
+        if not os.path.exists(fn):
+            fn = os.path.join('tests', fn)
+
+        df = pd.read_csv(fn, parse_dates=[
             'time_in', 'midpoint', 'time_out'
         ])
         df.duration = pd.to_timedelta(df.duration)
@@ -76,7 +84,11 @@ class TestGPS(TestCase):
 
     @property
     def gps_records(self):
-        return pd.read_csv('some_gps.csv', parse_dates=['ts'])
+        fn = 'some_gps.csv'
+        if not os.path.exists(fn):
+            fn = os.path.join('tests', fn)
+
+        return pd.read_csv(fn, parse_dates=['ts'])
 
     @classmethod
     def tearDownClass(cls):
