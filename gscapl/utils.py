@@ -30,7 +30,7 @@ if not os.path.exists(config_file):
           'must live in your home directory. See the docs for more details.')
 
     CONFIG = dict(
-        GooglePlacesAPI='none',
+        GooglePlacesAPI='AIza',
         YelpAPI='none',
         DarkSkyAPI='none'
     )
