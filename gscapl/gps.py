@@ -59,9 +59,14 @@ Base = declarative_base()
 
 
 @contextmanager
-def session_scope():
+def session_scope(engine_):
     """Provide a transactional scope around a series of operations."""
-    Session = sessionmaker(bind=engine)
+    if engine_ == GCNAME:
+        engine_ = create_engine(GCNAME, module=sqlite)
+    else:
+        engine_ = create_engine(engine_, module=sqlite)
+
+    Session = sessionmaker(bind=engine_)
     session = Session()
     try:
         yield session
@@ -153,10 +158,9 @@ class PlaceRequest(Base):
 
 
 """ensure the api cache is ready"""
-gcname = 'api_cache.sqlite'
-engine = create_engine(f'sqlite+pysqlite:///{dpath(gcname)}', module=sqlite)
+GCNAME = 'api_cache.sqlite'
+engine = create_engine(f'sqlite+pysqlite:///{dpath(GCNAME)}', module=sqlite)
 Base.metadata.create_all(engine)
-del gcname
 
 
 # Yelp -----------------------------------------------------------------
@@ -307,7 +311,7 @@ def gmapping(x):
     if isinstance(t, pd.Series):
         t = t.tolist()[0]
 
-    if t is not None and 'Expecting value:' in t:
+    if t is None and 'Expecting value:' in x:
         t = 'JSON Decode Error'
 
     return {t} if t is not None else {'undefined category'}
@@ -318,6 +322,7 @@ def gmap_call(request):
         key = CONFIG['GooglePlacesAPI']
     except KeyError:
         print('a key for GooglePlacesAPI was not found in .gscapConfig file')
+        return request
 
     gmaps = googlemaps.Client(key=key)
     nearby_request = gmaps.places_nearby(
@@ -471,14 +476,16 @@ def process_request(args):
     # if we made it this far, we had a cache miss so make the request
     if not cache_only:
         a, call_complete = 0, False
-        while a < CONNECTION_RESET_ATTEMPTS and not call_complete:
+        while not call_complete:
             try:
                 result = request.call(request)
                 call_complete = True
             except ConnectionError:
                 a += 1
-                print(f'\n{a} connection attempts failed\n')
                 time.sleep(CONNECTION_WAIT_TIME)
+
+                if a == CONNECTION_RESET_ATTEMPTS:
+                    raise ConnectionError
             except Exception as e:
                 raise e
     else:
@@ -495,15 +502,20 @@ def process_request(args):
     return dict(report=result.dict, hits=0, misses=1)
 
 
-def request_nearby_places(request, n_jobs=1, cache_only=False, force=False, progress_qu=None):
+def request_nearby_places(request, n_jobs=1, cache_only=False, force=False, progress_qu=None, kwargs=None):
     if not isinstance(request, list):
         request = [request]
+
+    if kwargs is not None and 'engine' in kwargs.keys():
+        engine_ = kwargs['engine']
+    else:
+        engine_ = GCNAME
 
     # first check our cache to see of we've made the same request
     man = mul.Manager()
     request_qu, response_qu = man.Queue(), man.Queue()
     cman = mul.Process(
-        target=cache_manager, args=(request_qu, response_qu)
+        target=cache_manager, args=(request_qu, response_qu, engine_)
     )
     cman.start()
 
@@ -519,7 +531,10 @@ def request_nearby_places(request, n_jobs=1, cache_only=False, force=False, prog
     else:
         results = list(pool.map(
              process_request,
-             [(ri, cache_only, force, progress_qu, request_qu, response_qu) for ri in request]
+             [
+                 (ri, cache_only, force, progress_qu, request_qu, response_qu)
+                 for ri in request
+             ]
         ))
         request_qu.put(dict(type='end'))
 
@@ -555,11 +570,11 @@ def update_queue(progress_qu):
         pass
 
 
-def cache_manager(request_qu, response_qu):
+def cache_manager(request_qu, response_qu, engine_):
     finished = False
 
     while not finished:
-        with session_scope() as session:
+        with session_scope(engine_) as session:
             try:
                 r = request_qu.get()
             except EOFError:
@@ -569,11 +584,10 @@ def cache_manager(request_qu, response_qu):
             if r['type'] == 'get':
                 request = r['args'][0]
                 content = get_from_cache(request, session)
-                response_qu.put(
-                    dict(
-                        pid=r['pid'],
-                        response=content)
-                )
+                response_qu.put(dict(
+                    pid=r['pid'],
+                    response=content
+                ))
 
             elif r['type'] == 'put':
                 put_to_cache(r['args'][0], session)
@@ -646,6 +660,8 @@ def cluster_metrics(clusters, entries):
     else:
         pass
 
+    entries = entries.loc[~(entries.cid == 'xNot')]
+
     stats = []
     grouped = entries.groupby('cid')
 
@@ -671,49 +687,49 @@ def cluster_metrics(clusters, entries):
             lambda r: dt.time(hour=r.hour, minute=r.minute)
         )
 
-        groups_by_itod = df.groupby('in_hod')
-        groups_by_itod = [(n, pd.DataFrame(g)) for n, g in groups_by_itod]
-        counts_by_itod = sorted(
-            [(g[0], len(g[1])) for g in groups_by_itod],
-            key=lambda t: t[1],
-            reverse=True
-        )[:3]
+        # groups_by_itod = df.groupby('in_hod')
+        # groups_by_itod = [(n, pd.DataFrame(g)) for n, g in groups_by_itod]
+        # counts_by_itod = sorted(
+        #     [(g[0], len(g[1])) for g in groups_by_itod],
+        #     key=lambda t: t[1],
+        #     reverse=True
+        # )[:3]
+        #
+        # groups_by_otod = df.groupby('out_hod')
+        # groups_by_otod = [(n, pd.DataFrame(g)) for n, g in groups_by_otod]
+        # counts_by_otod = sorted(
+        #     [(g[0], len(g[1])) for g in groups_by_otod],
+        #     key=lambda t: t[1],
+        #     reverse=True
+        # )[:3]
+        #
+        # groups_by_day = df.groupby('day')
+        # groups_by_day = [pd.DataFrame(g) for n, g in groups_by_day]
+        # daily_counts  = [len(g) for g in groups_by_day]
 
-        groups_by_otod = df.groupby('out_hod')
-        groups_by_otod = [(n, pd.DataFrame(g)) for n, g in groups_by_otod]
-        counts_by_otod = sorted(
-            [(g[0], len(g[1])) for g in groups_by_otod],
-            key=lambda t: t[1],
-            reverse=True
-        )[:3]
+        # groups_by_weekday = df.groupby('weekday')
+        # groups_by_weekday = [(n, pd.DataFrame(g)) for n, g in groups_by_weekday]
+        # counts_by_dow = sorted(
+        #     [(g[0], len(g[1])) for g in groups_by_weekday],
+        #     key=lambda t: t[1],
+        #     reverse=True
+        # )[:3]
 
-        groups_by_day = df.groupby('day')
-        groups_by_day = [pd.DataFrame(g) for n, g in groups_by_day]
-        daily_counts  = [len(g) for g in groups_by_day]
+        # groups_by_week = df.groupby('week')
+        # groups_by_week = [pd.DataFrame(g) for n, g in groups_by_week]
+        # weekly_counts  = [len(g) for g in groups_by_week]
 
-        groups_by_weekday = df.groupby('weekday')
-        groups_by_weekday = [(n, pd.DataFrame(g)) for n, g in groups_by_weekday]
-        counts_by_dow = sorted(
-            [(g[0], len(g[1])) for g in groups_by_weekday],
-            key=lambda t: t[1],
-            reverse=True
-        )[:3]
+        # groups_by_month = df.groupby('month')
+        # groups_by_month = [(n, pd.DataFrame(g)) for n, g in groups_by_month]
+        # counts_by_month = sorted(
+        #     [(g[0], len(g[1])) for g in groups_by_month],
+        #     key=lambda t: t[1],
+        #     reverse=True
+        # )[:3]
 
-        groups_by_week = df.groupby('week')
-        groups_by_week = [pd.DataFrame(g) for n, g in groups_by_week]
-        weekly_counts  = [len(g) for g in groups_by_week]
-
-        groups_by_month = df.groupby('month')
-        groups_by_month = [(n, pd.DataFrame(g)) for n, g in groups_by_month]
-        counts_by_month = sorted(
-            [(g[0], len(g[1])) for g in groups_by_month],
-            key=lambda t: t[1],
-            reverse=True
-        )[:3]
-
-        groups_by_ymonth = df.groupby('ymonth')
-        groups_by_ymonth = [pd.DataFrame(g) for n, g in groups_by_ymonth]
-        ymonthly_counts  = [len(g) for g in groups_by_ymonth]
+        # groups_by_ymonth = df.groupby('ymonth')
+        # groups_by_ymonth = [pd.DataFrame(g) for n, g in groups_by_ymonth]
+        # ymonthly_counts  = [len(g) for g in groups_by_ymonth]
 
         # mean time interval between visits - Mobile Phone Detection of Semantic Location and...
         # rolling mean between entry midpoint pairs
@@ -1747,66 +1763,6 @@ def resample_gps_intervals(records):
 
     resampled.drop(columns='gv', inplace=True)
     return resampled
-
-
-def prep_takeout_data(file_name):
-    def arow(args):
-        idx, row = args
-
-        j_ = js.activity[idx]
-        pbar.update(1)
-
-        if isinstance(j_, float):
-            return np.nan
-
-        if len(j_) > 0:
-            try:
-                return j_[0]['activity'][0]['type']
-            except:
-                return np.nan
-        else:
-            return np.nan
-
-    with open(file_name, 'r') as f:
-        js = json.load(f)
-
-    js = pd.DataFrame(js['locations'])
-
-    if 'verticalAccuracy' in js.columns:
-        js.drop(columns='verticalAccuracy', inplace=True)
-
-    if 'altitude' in js.columns:
-        js.drop(columns='altitude', inplace=True)
-
-    if 'heading' in js.columns:
-        js.drop(columns='heading', inplace=True)
-
-    if 'velocity' in js.columns:
-        js.drop(columns='velocity', inplace=True)
-
-    js['accuracy_ok'] = js.accuracy < 150
-
-    js.timestampMs = pd.to_datetime(js.timestampMs, unit='ms')
-
-    js.latitudeE7 = np.round(js.latitudeE7/10e6, 5)
-    js.longitudeE7 = np.round(js.longitudeE7/10e6, 5)
-
-    js['date'] = js.timestampMs.progress_apply(dt.datetime.date)
-
-    if 'activity' in js.columns:
-        pool = TPool(mul.cpu_count())
-
-        pbar = tqdm(total=len(js))
-
-        js.activity = list(pool.map(arow, list(js.iterrows())))
-
-        pool.close()
-        pool.join()
-
-    js.rename(columns={'latitudeE7': 'lat', 'longitudeE7': 'lon', 'timestampMs': 'ts'}, inplace=True)
-
-    js = js.sort_values(by='ts')
-    return js
 
 
 def __geo_distance_wrapper(args):
