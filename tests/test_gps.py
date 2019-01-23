@@ -45,6 +45,16 @@ class TestGPS(TestCase):
         gps.CONNECTION_RESET_ATTEMPTS = 1
         gps.CONNECTION_WAIT_TIME = 0
 
+        cls.home_cluster = cls.gen_cluster(0, 0, list(range(1, 7)) + list(range(18, 24)))
+        cls.work_cluster = cls.gen_cluster(0.5, 0.5, list(range(8, 12)) + list(range(13, 17)))
+
+        home_and_work = pd.concat(
+                [cls.home_cluster, cls.work_cluster],
+                sort=False)\
+            .sort_values(by='ts')\
+            .reset_index(drop=True)
+        cls.home_and_work = gps.process_velocities(home_and_work)
+
     @classmethod
     def del_cache(cls):
         fn = cls.gcname.replace('sqlite+pysqlite:///', '')
@@ -61,6 +71,25 @@ class TestGPS(TestCase):
             mock_response = f.read()
 
         return mock_response
+
+    @classmethod
+    def gen_cluster(cls, lat, lon, hours):
+        t = []
+        for d in range(1, 7):
+            for h in hours:
+                for m in range(60):
+                    t.append(dict(
+                        ts=dt.datetime(
+                            year=2019,
+                            month=1,
+                            day=d,
+                            hour=h,
+                            minute=m
+                        ),
+                        lat=lat+np.random.uniform(-0.0002, 0.0002),
+                        lon=lon+np.random.uniform(-0.0002, 0.0002)
+                    ))
+        return pd.DataFrame(t, index=list(range(len(t))))
 
     @property
     def clusters(self):
@@ -549,3 +578,41 @@ class TestGPS(TestCase):
         self.assertTrue(t[0]['cid'] == 'work')
         self.assertTrue(t[0]['lat'] == 40.00015)
         self.assertTrue(t[0]['lon'] == -45.0)
+
+    def test_geo_pairwise(self):
+        x = [(0, 0), (1, 0)]
+        t = gps.geo_pairwise_distances(x)
+        self.assertTrue(len(t) == 1)
+        self.assertTrue(t[0] == 111194.9)
+
+        x.append((0, 1))
+        t = gps.geo_pairwise_distances(x)
+        self.assertTrue(len(t) == 3)
+
+    def test_get_clusters_with_context(self):
+        records, clusters = gps.get_clusters_with_context(self.home_and_work)
+        clusters = clusters.cid.unique()
+        self.assertTrue('work' in clusters)
+        self.assertTrue('home' in clusters)
+
+    def test_get_clusters_with_context_only_home_when_work_out_of_range(self):
+        work = self.work_cluster.copy()
+        work.lat = work.lat + 10
+
+        y = pd.concat([self.home_cluster, work], sort=False).sort_values(by='ts').reset_index(drop=True)
+        y = gps.process_velocities(y)
+
+        records, clusters = gps.get_clusters_with_context(y)
+
+        clusters = clusters.cid.unique()
+        self.assertTrue('work' not in clusters)
+        self.assertTrue('home' in clusters)
+
+    def test_get_clusters_with_context_only_home_when_not_working(self):
+        y = self.home_and_work.copy()
+        y['working'] = False
+
+        records, clusters = gps.get_clusters_with_context(y)
+        clusters = clusters.cid.unique()
+        self.assertTrue('work' not in clusters)
+        self.assertTrue('home' in clusters)

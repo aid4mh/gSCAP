@@ -1080,7 +1080,7 @@ def geo_pairwise_distances(x, as_array=True, n_jobs=1):
     result = list(pool.map(__geo_distance_wrapper, pairs))
     result = np.round(result, 1)
 
-    x=pd.DataFrame(
+    x = pd.DataFrame(
         [
             (p[0][0], p[0][1], p[1][0], p[1][1], d)
             for p, d in zip(pairs, result)
@@ -1140,7 +1140,7 @@ def get_clusters_with_context(records, parameters=None, validation_metrics=False
 
         # check for work records only if the participant works
         work, wmask, work_records = None, [], None
-        if 'working' not in records.columns or len(records.loc[records.working, :]) > 0:
+        if 'working' not in records.columns or records.working.sum() > 0:
             work, wmask = estimate_work_location(stationary, parameters)
 
             if len(wmask) > 0:
