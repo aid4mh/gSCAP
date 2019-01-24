@@ -128,8 +128,17 @@ class HourlyWeatherReport(Base):
     def from_tuple(self, tup):
         self.lat = tup.lat
         self.lon = tup.lon
-        self.date = tup.date
-        self.time = tup.time
+
+        if isinstance(tup.date, dt.datetime):
+            self.date = tup.date.date()
+        else:
+            self.date = tup.date
+
+        if isinstance(tup.time, dt.datetime):
+            self.time = tup.time.time()
+        else:
+            self.time = tup.time
+
         self.apparentTemperature = tup.apparentTemperature
         self.cloudCover = tup.cloudCover
         self.cloudCoverError = tup.cloudCoverError

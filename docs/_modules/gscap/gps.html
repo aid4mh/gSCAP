@@ -8,7 +8,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>gscapl.gps &mdash; gSCAP 0 documentation</title>
+  <title>gscap.gps &mdash; gSCAP 0 documentation</title>
   
 
   
@@ -131,7 +131,7 @@
         
           <li><a href="../index.html">Module code</a> &raquo;</li>
         
-      <li>gscapl.gps</li>
+      <li>gscap.gps</li>
     
     
       <li class="wy-breadcrumbs-aside">
@@ -146,22 +146,22 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
             
-  <h1>Source code for gscapl.gps</h1><div class="highlight"><pre>
+  <h1>Source code for gscap.gps</h1><div class="highlight"><pre>
 <span></span><span class="ch">#!/usr/bin/env python</span>
 
 <span class="sd">&quot;&quot;&quot; A collection of scripts for processing GPS streams&quot;&quot;&quot;</span>
 
 <span class="kn">from</span> <span class="nn">collections</span> <span class="k">import</span> <span class="n">namedtuple</span>
 <span class="kn">from</span> <span class="nn">contextlib</span> <span class="k">import</span> <span class="n">contextmanager</span>
+<span class="kn">import</span> <span class="nn">datetime</span> <span class="k">as</span> <span class="nn">dt</span>
 <span class="kn">from</span> <span class="nn">enum</span> <span class="k">import</span> <span class="n">Enum</span>
 <span class="kn">import</span> <span class="nn">json</span>
 <span class="kn">import</span> <span class="nn">multiprocessing</span> <span class="k">as</span> <span class="nn">mul</span>
-<span class="kn">from</span> <span class="nn">multiprocessing.dummy</span> <span class="k">import</span> <span class="n">Pool</span> <span class="k">as</span> <span class="n">TPool</span>
+<span class="kn">import</span> <span class="nn">re</span>
 <span class="kn">import</span> <span class="nn">requests</span>
-<span class="kn">from</span> <span class="nn">sqlite3</span> <span class="k">import</span> <span class="n">dbapi2</span> <span class="k">as</span> <span class="n">sqlite</span>
-<span class="kn">import</span> <span class="nn">sys</span>
-<span class="kn">import</span> <span class="nn">time</span>
 <span class="kn">from</span> <span class="nn">requests.exceptions</span> <span class="k">import</span> <span class="ne">ConnectionError</span>
+<span class="kn">from</span> <span class="nn">sqlite3</span> <span class="k">import</span> <span class="n">dbapi2</span> <span class="k">as</span> <span class="n">sqlite</span>
+<span class="kn">import</span> <span class="nn">time</span>
 
 <span class="kn">import</span> <span class="nn">googlemaps</span>
 <span class="kn">from</span> <span class="nn">scipy.stats</span> <span class="k">import</span> <span class="n">mode</span>
@@ -173,7 +173,7 @@
 <span class="kn">from</span> <span class="nn">sqlalchemy.ext.declarative</span> <span class="k">import</span> <span class="n">declarative_base</span>
 <span class="kn">from</span> <span class="nn">tqdm</span> <span class="k">import</span> <span class="n">tqdm</span>
 
-<span class="kn">from</span> <span class="nn">gscapl.utils</span> <span class="k">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="nn">gscap.utils</span> <span class="k">import</span> <span class="o">*</span>
 
 <span class="n">__author__</span> <span class="o">=</span> <span class="s1">&#39;Luke Waninger&#39;</span>
 <span class="n">__copyright__</span> <span class="o">=</span> <span class="s1">&#39;Copyright 2018, University of Washington&#39;</span>
@@ -206,10 +206,15 @@
 <span class="n">Base</span> <span class="o">=</span> <span class="n">declarative_base</span><span class="p">()</span>
 
 
-<div class="viewcode-block" id="session_scope"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.session_scope">[docs]</a><span class="nd">@contextmanager</span>
-<span class="k">def</span> <span class="nf">session_scope</span><span class="p">():</span>
+<span class="nd">@contextmanager</span>
+<span class="k">def</span> <span class="nf">session_scope</span><span class="p">(</span><span class="n">engine_</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;Provide a transactional scope around a series of operations.&quot;&quot;&quot;</span>
-    <span class="n">Session</span> <span class="o">=</span> <span class="n">sessionmaker</span><span class="p">(</span><span class="n">bind</span><span class="o">=</span><span class="n">engine</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">engine_</span> <span class="o">==</span> <span class="n">GCNAME</span><span class="p">:</span>
+        <span class="n">engine_</span> <span class="o">=</span> <span class="n">create_engine</span><span class="p">(</span><span class="n">GCNAME</span><span class="p">,</span> <span class="n">module</span><span class="o">=</span><span class="n">sqlite</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">engine_</span> <span class="o">=</span> <span class="n">create_engine</span><span class="p">(</span><span class="n">engine_</span><span class="p">,</span> <span class="n">module</span><span class="o">=</span><span class="n">sqlite</span><span class="p">)</span>
+
+    <span class="n">Session</span> <span class="o">=</span> <span class="n">sessionmaker</span><span class="p">(</span><span class="n">bind</span><span class="o">=</span><span class="n">engine_</span><span class="p">)</span>
     <span class="n">session</span> <span class="o">=</span> <span class="n">Session</span><span class="p">()</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="k">yield</span> <span class="n">session</span>
@@ -220,10 +225,10 @@
         <span class="n">session</span><span class="o">.</span><span class="n">rollback</span><span class="p">()</span>
         <span class="k">raise</span> <span class="n">e</span>
     <span class="k">finally</span><span class="p">:</span>
-        <span class="n">session</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
+        <span class="n">session</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
 
 
-<div class="viewcode-block" id="PlaceRequest"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.PlaceRequest">[docs]</a><span class="k">class</span> <span class="nc">PlaceRequest</span><span class="p">(</span><span class="n">Base</span><span class="p">):</span>
+<span class="k">class</span> <span class="nc">PlaceRequest</span><span class="p">(</span><span class="n">Base</span><span class="p">):</span>
     <span class="n">__tablename__</span> <span class="o">=</span> <span class="s1">&#39;apicalls&#39;</span>
 
     <span class="n">lat</span> <span class="o">=</span> <span class="n">Column</span><span class="p">(</span><span class="n">Float</span><span class="p">,</span> <span class="n">primary_key</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -297,14 +302,13 @@
         <span class="k">return</span> <span class="n">lat</span> <span class="o">!=</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">lon</span> <span class="o">!=</span> <span class="mi">0</span>
 
     <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-        <span class="k">return</span> <span class="n">f</span><span class="s1">&#39;&lt;PlaceRequest(lat=</span><span class="si">{self.lat}</span><span class="s1">, lon=</span><span class="si">{self.lon}</span><span class="s1">, source=</span><span class="si">{self.source}</span><span class="s1">)&gt;&#39;</span></div>
+        <span class="k">return</span> <span class="n">f</span><span class="s1">&#39;&lt;PlaceRequest(lat=</span><span class="si">{self.lat}</span><span class="s1">, lon=</span><span class="si">{self.lon}</span><span class="s1">, source=</span><span class="si">{self.source}</span><span class="s1">)&gt;&#39;</span>
 
 
 <span class="sd">&quot;&quot;&quot;ensure the api cache is ready&quot;&quot;&quot;</span>
-<span class="n">gcname</span> <span class="o">=</span> <span class="s1">&#39;api_cache.sqlite&#39;</span>
-<span class="n">engine</span> <span class="o">=</span> <span class="n">create_engine</span><span class="p">(</span><span class="n">f</span><span class="s1">&#39;sqlite+pysqlite:///{dpath(gcname)}&#39;</span><span class="p">,</span> <span class="n">module</span><span class="o">=</span><span class="n">sqlite</span><span class="p">)</span>
+<span class="n">GCNAME</span> <span class="o">=</span> <span class="s1">&#39;api_cache.sqlite&#39;</span>
+<span class="n">engine</span> <span class="o">=</span> <span class="n">create_engine</span><span class="p">(</span><span class="n">f</span><span class="s1">&#39;sqlite+pysqlite:///{dpath(GCNAME)}&#39;</span><span class="p">,</span> <span class="n">module</span><span class="o">=</span><span class="n">sqlite</span><span class="p">)</span>
 <span class="n">Base</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">create_all</span><span class="p">(</span><span class="n">engine</span><span class="p">)</span>
-<span class="k">del</span> <span class="n">gcname</span>
 
 
 <span class="c1"># Yelp -----------------------------------------------------------------</span>
@@ -313,11 +317,11 @@
 <span class="p">)</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="s1">&#39;cat&#39;</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="YelpRankBy"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.YelpRankBy">[docs]</a><span class="k">class</span> <span class="nc">YelpRankBy</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+<span class="k">class</span> <span class="nc">YelpRankBy</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
     <span class="n">BEST_MATCH</span> <span class="o">=</span> <span class="s1">&#39;best_match&#39;</span>
     <span class="n">RATING</span> <span class="o">=</span> <span class="s1">&#39;rating&#39;</span>
     <span class="n">REVIEW_COUNT</span> <span class="o">=</span> <span class="s1">&#39;review_count&#39;</span>
-    <span class="n">DISTANCE</span> <span class="o">=</span> <span class="s1">&#39;distance&#39;</span></div>
+    <span class="n">DISTANCE</span> <span class="o">=</span> <span class="s1">&#39;distance&#39;</span>
 
 
 <span class="k">def</span> <span class="nf">yelp_call</span><span class="p">(</span><span class="n">request</span><span class="p">):</span>
@@ -441,8 +445,8 @@
 <span class="p">)</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="s1">&#39;cat&#39;</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="GmapsRankBy"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.GmapsRankBy">[docs]</a><span class="k">class</span> <span class="nc">GmapsRankBy</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
-    <span class="n">PROMINENCE</span> <span class="o">=</span> <span class="s1">&#39;prominence&#39;</span></div>
+<span class="k">class</span> <span class="nc">GmapsRankBy</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+    <span class="n">PROMINENCE</span> <span class="o">=</span> <span class="s1">&#39;prominence&#39;</span>
 
 
 <span class="k">def</span> <span class="nf">gmapping</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
@@ -455,7 +459,7 @@
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">):</span>
         <span class="n">t</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">tolist</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
 
-    <span class="k">if</span> <span class="n">t</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="s1">&#39;Expecting value:&#39;</span> <span class="ow">in</span> <span class="n">t</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">t</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="s1">&#39;Expecting value:&#39;</span> <span class="ow">in</span> <span class="n">x</span><span class="p">:</span>
         <span class="n">t</span> <span class="o">=</span> <span class="s1">&#39;JSON Decode Error&#39;</span>
 
     <span class="k">return</span> <span class="p">{</span><span class="n">t</span><span class="p">}</span> <span class="k">if</span> <span class="n">t</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="p">{</span><span class="s1">&#39;undefined category&#39;</span><span class="p">}</span>
@@ -466,6 +470,7 @@
         <span class="n">key</span> <span class="o">=</span> <span class="n">CONFIG</span><span class="p">[</span><span class="s1">&#39;GooglePlacesAPI&#39;</span><span class="p">]</span>
     <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
         <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;a key for GooglePlacesAPI was not found in .gscapConfig file&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">request</span>
 
     <span class="n">gmaps</span> <span class="o">=</span> <span class="n">googlemaps</span><span class="o">.</span><span class="n">Client</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">key</span><span class="p">)</span>
     <span class="n">nearby_request</span> <span class="o">=</span> <span class="n">gmaps</span><span class="o">.</span><span class="n">places_nearby</span><span class="p">(</span>
@@ -619,14 +624,16 @@
     <span class="c1"># if we made it this far, we had a cache miss so make the request</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">cache_only</span><span class="p">:</span>
         <span class="n">a</span><span class="p">,</span> <span class="n">call_complete</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="kc">False</span>
-        <span class="k">while</span> <span class="n">a</span> <span class="o">&lt;</span> <span class="n">CONNECTION_RESET_ATTEMPTS</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">call_complete</span><span class="p">:</span>
+        <span class="k">while</span> <span class="ow">not</span> <span class="n">call_complete</span><span class="p">:</span>
             <span class="k">try</span><span class="p">:</span>
                 <span class="n">result</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="n">request</span><span class="p">)</span>
                 <span class="n">call_complete</span> <span class="o">=</span> <span class="kc">True</span>
             <span class="k">except</span> <span class="ne">ConnectionError</span><span class="p">:</span>
                 <span class="n">a</span> <span class="o">+=</span> <span class="mi">1</span>
-                <span class="nb">print</span><span class="p">(</span><span class="n">f</span><span class="s1">&#39;</span><span class="se">\n</span><span class="si">{a}</span><span class="s1"> connection attempts failed</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">)</span>
                 <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">CONNECTION_WAIT_TIME</span><span class="p">)</span>
+
+                <span class="k">if</span> <span class="n">a</span> <span class="o">==</span> <span class="n">CONNECTION_RESET_ATTEMPTS</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">ConnectionError</span>
             <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
                 <span class="k">raise</span> <span class="n">e</span>
     <span class="k">else</span><span class="p">:</span>
@@ -643,15 +650,20 @@
     <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="n">report</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">dict</span><span class="p">,</span> <span class="n">hits</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">misses</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
 
 
-<span class="k">def</span> <span class="nf">request_nearby_places</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">cache_only</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">force</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">progress_qu</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">request_nearby_places</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">cache_only</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">force</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">progress_qu</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
         <span class="n">request</span> <span class="o">=</span> <span class="p">[</span><span class="n">request</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">kwargs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="s1">&#39;engine&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+        <span class="n">engine_</span> <span class="o">=</span> <span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;engine&#39;</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">engine_</span> <span class="o">=</span> <span class="n">GCNAME</span>
 
     <span class="c1"># first check our cache to see of we&#39;ve made the same request</span>
     <span class="n">man</span> <span class="o">=</span> <span class="n">mul</span><span class="o">.</span><span class="n">Manager</span><span class="p">()</span>
     <span class="n">request_qu</span><span class="p">,</span> <span class="n">response_qu</span> <span class="o">=</span> <span class="n">man</span><span class="o">.</span><span class="n">Queue</span><span class="p">(),</span> <span class="n">man</span><span class="o">.</span><span class="n">Queue</span><span class="p">()</span>
     <span class="n">cman</span> <span class="o">=</span> <span class="n">mul</span><span class="o">.</span><span class="n">Process</span><span class="p">(</span>
-        <span class="n">target</span><span class="o">=</span><span class="n">cache_manager</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="n">request_qu</span><span class="p">,</span> <span class="n">response_qu</span><span class="p">)</span>
+        <span class="n">target</span><span class="o">=</span><span class="n">cache_manager</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="n">request_qu</span><span class="p">,</span> <span class="n">response_qu</span><span class="p">,</span> <span class="n">engine_</span><span class="p">)</span>
     <span class="p">)</span>
     <span class="n">cman</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
 
@@ -667,7 +679,10 @@
     <span class="k">else</span><span class="p">:</span>
         <span class="n">results</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">pool</span><span class="o">.</span><span class="n">map</span><span class="p">(</span>
              <span class="n">process_request</span><span class="p">,</span>
-             <span class="p">[(</span><span class="n">ri</span><span class="p">,</span> <span class="n">cache_only</span><span class="p">,</span> <span class="n">force</span><span class="p">,</span> <span class="n">progress_qu</span><span class="p">,</span> <span class="n">request_qu</span><span class="p">,</span> <span class="n">response_qu</span><span class="p">)</span> <span class="k">for</span> <span class="n">ri</span> <span class="ow">in</span> <span class="n">request</span><span class="p">]</span>
+             <span class="p">[</span>
+                 <span class="p">(</span><span class="n">ri</span><span class="p">,</span> <span class="n">cache_only</span><span class="p">,</span> <span class="n">force</span><span class="p">,</span> <span class="n">progress_qu</span><span class="p">,</span> <span class="n">request_qu</span><span class="p">,</span> <span class="n">response_qu</span><span class="p">)</span>
+                 <span class="k">for</span> <span class="n">ri</span> <span class="ow">in</span> <span class="n">request</span>
+             <span class="p">]</span>
         <span class="p">))</span>
         <span class="n">request_qu</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s1">&#39;end&#39;</span><span class="p">))</span>
 
@@ -703,11 +718,11 @@
         <span class="k">pass</span>
 
 
-<span class="k">def</span> <span class="nf">cache_manager</span><span class="p">(</span><span class="n">request_qu</span><span class="p">,</span> <span class="n">response_qu</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">cache_manager</span><span class="p">(</span><span class="n">request_qu</span><span class="p">,</span> <span class="n">response_qu</span><span class="p">,</span> <span class="n">engine_</span><span class="p">):</span>
     <span class="n">finished</span> <span class="o">=</span> <span class="kc">False</span>
 
     <span class="k">while</span> <span class="ow">not</span> <span class="n">finished</span><span class="p">:</span>
-        <span class="k">with</span> <span class="n">session_scope</span><span class="p">()</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">session_scope</span><span class="p">(</span><span class="n">engine_</span><span class="p">)</span> <span class="k">as</span> <span class="n">session</span><span class="p">:</span>
             <span class="k">try</span><span class="p">:</span>
                 <span class="n">r</span> <span class="o">=</span> <span class="n">request_qu</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
             <span class="k">except</span> <span class="ne">EOFError</span><span class="p">:</span>
@@ -717,11 +732,10 @@
             <span class="k">if</span> <span class="n">r</span><span class="p">[</span><span class="s1">&#39;type&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="s1">&#39;get&#39;</span><span class="p">:</span>
                 <span class="n">request</span> <span class="o">=</span> <span class="n">r</span><span class="p">[</span><span class="s1">&#39;args&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
                 <span class="n">content</span> <span class="o">=</span> <span class="n">get_from_cache</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">session</span><span class="p">)</span>
-                <span class="n">response_qu</span><span class="o">.</span><span class="n">put</span><span class="p">(</span>
-                    <span class="nb">dict</span><span class="p">(</span>
-                        <span class="n">pid</span><span class="o">=</span><span class="n">r</span><span class="p">[</span><span class="s1">&#39;pid&#39;</span><span class="p">],</span>
-                        <span class="n">response</span><span class="o">=</span><span class="n">content</span><span class="p">)</span>
-                <span class="p">)</span>
+                <span class="n">response_qu</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span>
+                    <span class="n">pid</span><span class="o">=</span><span class="n">r</span><span class="p">[</span><span class="s1">&#39;pid&#39;</span><span class="p">],</span>
+                    <span class="n">response</span><span class="o">=</span><span class="n">content</span>
+                <span class="p">))</span>
 
             <span class="k">elif</span> <span class="n">r</span><span class="p">[</span><span class="s1">&#39;type&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="s1">&#39;put&#39;</span><span class="p">:</span>
                 <span class="n">put_to_cache</span><span class="p">(</span><span class="n">r</span><span class="p">[</span><span class="s1">&#39;args&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">session</span><span class="p">)</span>
@@ -771,7 +785,7 @@
         <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="n">f</span><span class="s1">&#39;</span><span class="si">{item}</span><span class="s1"> is not a valid API source&#39;</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="ApiSource"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.ApiSource">[docs]</a><span class="k">class</span> <span class="nc">ApiSource</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+<span class="k">class</span> <span class="nc">ApiSource</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
     <span class="n">YELP</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
         <span class="n">name</span><span class="o">=</span><span class="s1">&#39;Yelp&#39;</span><span class="p">,</span>
         <span class="n">call</span><span class="o">=</span><span class="n">yelp_call</span><span class="p">,</span>
@@ -782,7 +796,7 @@
         <span class="n">call</span><span class="o">=</span><span class="n">gmap_call</span><span class="p">,</span>
         <span class="n">parse_content</span><span class="o">=</span><span class="n">parse_gmap_response</span>
     <span class="p">)</span>
-    <span class="n">FROM_NAME</span> <span class="o">=</span> <span class="n">api_source</span></div>
+    <span class="n">FROM_NAME</span> <span class="o">=</span> <span class="n">api_source</span>
 
 
 <span class="c1"># --------------------------------------------------------------------------</span>
@@ -793,6 +807,8 @@
         <span class="n">clusters</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="s1">&#39;cnt&#39;</span><span class="p">,</span> <span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
         <span class="k">pass</span>
+
+    <span class="n">entries</span> <span class="o">=</span> <span class="n">entries</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="o">~</span><span class="p">(</span><span class="n">entries</span><span class="o">.</span><span class="n">cid</span> <span class="o">==</span> <span class="s1">&#39;xNot&#39;</span><span class="p">)]</span>
 
     <span class="n">stats</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="n">grouped</span> <span class="o">=</span> <span class="n">entries</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s1">&#39;cid&#39;</span><span class="p">)</span>
@@ -819,49 +835,49 @@
             <span class="k">lambda</span> <span class="n">r</span><span class="p">:</span> <span class="n">dt</span><span class="o">.</span><span class="n">time</span><span class="p">(</span><span class="n">hour</span><span class="o">=</span><span class="n">r</span><span class="o">.</span><span class="n">hour</span><span class="p">,</span> <span class="n">minute</span><span class="o">=</span><span class="n">r</span><span class="o">.</span><span class="n">minute</span><span class="p">)</span>
         <span class="p">)</span>
 
-        <span class="n">groups_by_itod</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s1">&#39;in_hod&#39;</span><span class="p">)</span>
-        <span class="n">groups_by_itod</span> <span class="o">=</span> <span class="p">[(</span><span class="n">n</span><span class="p">,</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">g</span><span class="p">))</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">groups_by_itod</span><span class="p">]</span>
-        <span class="n">counts_by_itod</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span>
-            <span class="p">[(</span><span class="n">g</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="nb">len</span><span class="p">(</span><span class="n">g</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span> <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">groups_by_itod</span><span class="p">],</span>
-            <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="n">t</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
-            <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span>
-        <span class="p">)[:</span><span class="mi">3</span><span class="p">]</span>
+        <span class="c1"># groups_by_itod = df.groupby(&#39;in_hod&#39;)</span>
+        <span class="c1"># groups_by_itod = [(n, pd.DataFrame(g)) for n, g in groups_by_itod]</span>
+        <span class="c1"># counts_by_itod = sorted(</span>
+        <span class="c1">#     [(g[0], len(g[1])) for g in groups_by_itod],</span>
+        <span class="c1">#     key=lambda t: t[1],</span>
+        <span class="c1">#     reverse=True</span>
+        <span class="c1"># )[:3]</span>
+        <span class="c1">#</span>
+        <span class="c1"># groups_by_otod = df.groupby(&#39;out_hod&#39;)</span>
+        <span class="c1"># groups_by_otod = [(n, pd.DataFrame(g)) for n, g in groups_by_otod]</span>
+        <span class="c1"># counts_by_otod = sorted(</span>
+        <span class="c1">#     [(g[0], len(g[1])) for g in groups_by_otod],</span>
+        <span class="c1">#     key=lambda t: t[1],</span>
+        <span class="c1">#     reverse=True</span>
+        <span class="c1"># )[:3]</span>
+        <span class="c1">#</span>
+        <span class="c1"># groups_by_day = df.groupby(&#39;day&#39;)</span>
+        <span class="c1"># groups_by_day = [pd.DataFrame(g) for n, g in groups_by_day]</span>
+        <span class="c1"># daily_counts  = [len(g) for g in groups_by_day]</span>
 
-        <span class="n">groups_by_otod</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s1">&#39;out_hod&#39;</span><span class="p">)</span>
-        <span class="n">groups_by_otod</span> <span class="o">=</span> <span class="p">[(</span><span class="n">n</span><span class="p">,</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">g</span><span class="p">))</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">groups_by_otod</span><span class="p">]</span>
-        <span class="n">counts_by_otod</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span>
-            <span class="p">[(</span><span class="n">g</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="nb">len</span><span class="p">(</span><span class="n">g</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span> <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">groups_by_otod</span><span class="p">],</span>
-            <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="n">t</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
-            <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span>
-        <span class="p">)[:</span><span class="mi">3</span><span class="p">]</span>
+        <span class="c1"># groups_by_weekday = df.groupby(&#39;weekday&#39;)</span>
+        <span class="c1"># groups_by_weekday = [(n, pd.DataFrame(g)) for n, g in groups_by_weekday]</span>
+        <span class="c1"># counts_by_dow = sorted(</span>
+        <span class="c1">#     [(g[0], len(g[1])) for g in groups_by_weekday],</span>
+        <span class="c1">#     key=lambda t: t[1],</span>
+        <span class="c1">#     reverse=True</span>
+        <span class="c1"># )[:3]</span>
 
-        <span class="n">groups_by_day</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s1">&#39;day&#39;</span><span class="p">)</span>
-        <span class="n">groups_by_day</span> <span class="o">=</span> <span class="p">[</span><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">g</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">groups_by_day</span><span class="p">]</span>
-        <span class="n">daily_counts</span>  <span class="o">=</span> <span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">g</span><span class="p">)</span> <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">groups_by_day</span><span class="p">]</span>
+        <span class="c1"># groups_by_week = df.groupby(&#39;week&#39;)</span>
+        <span class="c1"># groups_by_week = [pd.DataFrame(g) for n, g in groups_by_week]</span>
+        <span class="c1"># weekly_counts  = [len(g) for g in groups_by_week]</span>
 
-        <span class="n">groups_by_weekday</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s1">&#39;weekday&#39;</span><span class="p">)</span>
-        <span class="n">groups_by_weekday</span> <span class="o">=</span> <span class="p">[(</span><span class="n">n</span><span class="p">,</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">g</span><span class="p">))</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">groups_by_weekday</span><span class="p">]</span>
-        <span class="n">counts_by_dow</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span>
-            <span class="p">[(</span><span class="n">g</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="nb">len</span><span class="p">(</span><span class="n">g</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span> <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">groups_by_weekday</span><span class="p">],</span>
-            <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="n">t</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
-            <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span>
-        <span class="p">)[:</span><span class="mi">3</span><span class="p">]</span>
+        <span class="c1"># groups_by_month = df.groupby(&#39;month&#39;)</span>
+        <span class="c1"># groups_by_month = [(n, pd.DataFrame(g)) for n, g in groups_by_month]</span>
+        <span class="c1"># counts_by_month = sorted(</span>
+        <span class="c1">#     [(g[0], len(g[1])) for g in groups_by_month],</span>
+        <span class="c1">#     key=lambda t: t[1],</span>
+        <span class="c1">#     reverse=True</span>
+        <span class="c1"># )[:3]</span>
 
-        <span class="n">groups_by_week</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s1">&#39;week&#39;</span><span class="p">)</span>
-        <span class="n">groups_by_week</span> <span class="o">=</span> <span class="p">[</span><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">g</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">groups_by_week</span><span class="p">]</span>
-        <span class="n">weekly_counts</span>  <span class="o">=</span> <span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">g</span><span class="p">)</span> <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">groups_by_week</span><span class="p">]</span>
-
-        <span class="n">groups_by_month</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s1">&#39;month&#39;</span><span class="p">)</span>
-        <span class="n">groups_by_month</span> <span class="o">=</span> <span class="p">[(</span><span class="n">n</span><span class="p">,</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">g</span><span class="p">))</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">groups_by_month</span><span class="p">]</span>
-        <span class="n">counts_by_month</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span>
-            <span class="p">[(</span><span class="n">g</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="nb">len</span><span class="p">(</span><span class="n">g</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span> <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">groups_by_month</span><span class="p">],</span>
-            <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="n">t</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
-            <span class="n">reverse</span><span class="o">=</span><span class="kc">True</span>
-        <span class="p">)[:</span><span class="mi">3</span><span class="p">]</span>
-
-        <span class="n">groups_by_ymonth</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s1">&#39;ymonth&#39;</span><span class="p">)</span>
-        <span class="n">groups_by_ymonth</span> <span class="o">=</span> <span class="p">[</span><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">g</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">groups_by_ymonth</span><span class="p">]</span>
-        <span class="n">ymonthly_counts</span>  <span class="o">=</span> <span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">g</span><span class="p">)</span> <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">groups_by_ymonth</span><span class="p">]</span>
+        <span class="c1"># groups_by_ymonth = df.groupby(&#39;ymonth&#39;)</span>
+        <span class="c1"># groups_by_ymonth = [pd.DataFrame(g) for n, g in groups_by_ymonth]</span>
+        <span class="c1"># ymonthly_counts  = [len(g) for g in groups_by_ymonth]</span>
 
         <span class="c1"># mean time interval between visits - Mobile Phone Detection of Semantic Location and...</span>
         <span class="c1"># rolling mean between entry midpoint pairs</span>
@@ -929,7 +945,7 @@
         <span class="k">return</span> <span class="kc">None</span>
 
 
-<span class="k">def</span> <span class="nf">process_velocities</span><span class="p">(</span><span class="n">records</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">process_velocities</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
     <span class="n">cols</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;lat&#39;</span><span class="p">,</span> <span class="s1">&#39;lon&#39;</span><span class="p">,</span> <span class="s1">&#39;ts&#39;</span><span class="p">]</span>
 
     <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
@@ -962,12 +978,20 @@
         <span class="k">return</span> <span class="n">metrics</span>
 
     <span class="c1"># rolling window calculating velocities between rows i and i-1</span>
+    <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+        <span class="n">rng</span> <span class="o">=</span> <span class="n">tqdm</span><span class="p">(</span>
+            <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">records</span><span class="p">)),</span>
+            <span class="n">desc</span><span class="o">=</span><span class="s1">&#39;processing metrics&#39;</span>
+        <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">rng</span> <span class="o">=</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">records</span><span class="p">))</span>
+
     <span class="n">x</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="n">fx</span><span class="p">,</span> <span class="p">[</span>
             <span class="p">(</span>
                 <span class="nb">tuple</span><span class="p">((</span><span class="n">v</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">records</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">i</span><span class="p">,</span>   <span class="n">cols</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">)),</span>
                 <span class="nb">tuple</span><span class="p">((</span><span class="n">v</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">records</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">i</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">cols</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">))</span>
             <span class="p">)</span>
-            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">records</span><span class="p">))</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">rng</span>
         <span class="p">]</span>
     <span class="p">))</span>
 
@@ -979,7 +1003,7 @@
     <span class="k">return</span> <span class="n">records</span>
 
 
-<div class="viewcode-block" id="discrete_velocity"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.discrete_velocity">[docs]</a><span class="k">def</span> <span class="nf">discrete_velocity</span><span class="p">(</span><span class="n">coordinate_a</span><span class="p">,</span> <span class="n">coordinate_b</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">discrete_velocity</span><span class="p">(</span><span class="n">coordinate_a</span><span class="p">,</span> <span class="n">coordinate_b</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;converts the velocity between two points into a discrete value</span>
 
 <span class="sd">    Notes:</span>
@@ -1059,10 +1083,10 @@
         <span class="n">time_delta</span><span class="o">=</span><span class="n">seconds</span><span class="p">,</span>
         <span class="n">velocity</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">velocity</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
         <span class="n">binning</span><span class="o">=</span><span class="n">binning</span>
-    <span class="p">)</span></div>
+    <span class="p">)</span>
 
 
-<div class="viewcode-block" id="estimate_home_location"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.estimate_home_location">[docs]</a><span class="k">def</span> <span class="nf">estimate_home_location</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">parameters</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">estimate_home_location</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">parameters</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;calculate approximate home location from GPS records</span>
 
 <span class="sd">    Args:</span>
@@ -1090,10 +1114,10 @@
         <span class="n">home</span><span class="p">[</span><span class="s1">&#39;cid&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;home&#39;</span>
         <span class="k">return</span> <span class="n">home</span><span class="p">,</span> <span class="n">t</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="p">[]</span></div>
+        <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="p">[]</span>
 
 
-<div class="viewcode-block" id="estimate_work_location"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.estimate_work_location">[docs]</a><span class="k">def</span> <span class="nf">estimate_work_location</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">parameters</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">estimate_work_location</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">parameters</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;calculate approximate work location from GPS records</span>
 
 <span class="sd">    Args:</span>
@@ -1121,7 +1145,7 @@
         <span class="n">work</span><span class="p">[</span><span class="s1">&#39;cid&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;work&#39;</span>
         <span class="k">return</span> <span class="n">work</span><span class="p">,</span> <span class="n">t</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="p">[]</span></div>
+        <span class="k">return</span> <span class="kc">None</span><span class="p">,</span> <span class="p">[]</span>
 
 
 <span class="k">def</span> <span class="nf">extract_cluster_centers</span><span class="p">(</span><span class="n">gps_records</span><span class="p">,</span> <span class="n">dbscan</span><span class="p">):</span>
@@ -1192,7 +1216,7 @@
     <span class="k">return</span> <span class="n">centers</span>
 
 
-<div class="viewcode-block" id="geo_pairwise_distances"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.geo_pairwise_distances">[docs]</a><span class="k">def</span> <span class="nf">geo_pairwise_distances</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">as_array</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">geo_pairwise_distances</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">as_array</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="sd">    Args:</span>
@@ -1212,7 +1236,7 @@
     <span class="n">result</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">pool</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">__geo_distance_wrapper</span><span class="p">,</span> <span class="n">pairs</span><span class="p">))</span>
     <span class="n">result</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
 
-    <span class="n">x</span><span class="o">=</span><span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
+    <span class="n">x</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
         <span class="p">[</span>
             <span class="p">(</span><span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span> <span class="n">p</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">p</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">],</span> <span class="n">d</span><span class="p">)</span>
             <span class="k">for</span> <span class="n">p</span><span class="p">,</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">pairs</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span>
@@ -1222,7 +1246,7 @@
 
     <span class="n">pool</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
     <span class="n">pool</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
-    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">result</span><span class="p">))</span> <span class="k">if</span> <span class="n">as_array</span> <span class="k">else</span> <span class="n">x</span></div>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">result</span><span class="p">))</span> <span class="k">if</span> <span class="n">as_array</span> <span class="k">else</span> <span class="n">x</span>
 
 
 <span class="k">def</span> <span class="nf">get_clusters_with_context</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">parameters</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">validation_metrics</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">fence</span><span class="o">=</span><span class="mi">500</span><span class="p">):</span>
@@ -1272,7 +1296,7 @@
 
         <span class="c1"># check for work records only if the participant works</span>
         <span class="n">work</span><span class="p">,</span> <span class="n">wmask</span><span class="p">,</span> <span class="n">work_records</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="p">[],</span> <span class="kc">None</span>
-        <span class="k">if</span> <span class="s1">&#39;working&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">records</span><span class="o">.</span><span class="n">columns</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">records</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">records</span><span class="o">.</span><span class="n">working</span><span class="p">,</span> <span class="p">:])</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">if</span> <span class="s1">&#39;working&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">records</span><span class="o">.</span><span class="n">columns</span> <span class="ow">or</span> <span class="n">records</span><span class="o">.</span><span class="n">working</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
             <span class="n">work</span><span class="p">,</span> <span class="n">wmask</span> <span class="o">=</span> <span class="n">estimate_work_location</span><span class="p">(</span><span class="n">stationary</span><span class="p">,</span> <span class="n">parameters</span><span class="p">)</span>
 
             <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">wmask</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
@@ -1696,7 +1720,7 @@
     <span class="k">return</span> <span class="n">records</span><span class="p">,</span> <span class="n">clusters</span>
 
 
-<div class="viewcode-block" id="gps_dbscan"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.gps_dbscan">[docs]</a><span class="k">def</span> <span class="nf">gps_dbscan</span><span class="p">(</span><span class="n">gps_records</span><span class="p">,</span> <span class="n">parameters</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">gps_dbscan</span><span class="p">(</span><span class="n">gps_records</span><span class="p">,</span> <span class="n">parameters</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;perform DBSCAN and return cluster with most number of components</span>
 <span class="sd">    http://scikit-learn.org/stable/modules/generated/sklearn.cluster.DBSCAN.html</span>
 
@@ -1725,7 +1749,7 @@
     <span class="n">clusters</span> <span class="o">=</span> <span class="n">extract_cluster_centers</span><span class="p">(</span><span class="n">gps_records</span><span class="p">,</span> <span class="n">dbscan</span><span class="p">)</span>
     <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">pd</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">dbscan</span><span class="o">.</span><span class="n">labels_</span><span class="p">))</span> <span class="o">-</span> <span class="p">{</span><span class="o">-</span><span class="mi">1</span><span class="p">})</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">clusters</span><span class="p">)</span>
 
-    <span class="k">return</span> <span class="n">dbscan</span><span class="o">.</span><span class="n">labels_</span><span class="p">,</span> <span class="n">clusters</span></div>
+    <span class="k">return</span> <span class="n">dbscan</span><span class="o">.</span><span class="n">labels_</span><span class="p">,</span> <span class="n">clusters</span>
 
 
 <span class="k">def</span> <span class="nf">gpsr_to_records</span><span class="p">(</span><span class="n">gps_records</span><span class="p">):</span>
@@ -1733,7 +1757,7 @@
     <span class="k">return</span> <span class="n">records</span>
 
 
-<div class="viewcode-block" id="impute_between"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.impute_between">[docs]</a><span class="k">def</span> <span class="nf">impute_between</span><span class="p">(</span><span class="n">coordinate_a</span><span class="p">,</span> <span class="n">coordinate_b</span><span class="p">,</span> <span class="n">freq</span><span class="p">):</span>
+<span class="k">def</span> <span class="nf">impute_between</span><span class="p">(</span><span class="n">coordinate_a</span><span class="p">,</span> <span class="n">coordinate_b</span><span class="p">,</span> <span class="n">freq</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="sd">    Args:</span>
@@ -1772,10 +1796,10 @@
     <span class="n">fill_lon</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">a_lon</span><span class="p">,</span> <span class="n">b_lon</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">fill_range</span><span class="p">))</span>
 
     <span class="n">t</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">lat</span><span class="o">=</span><span class="n">fill_lat</span><span class="p">,</span> <span class="n">lon</span><span class="o">=</span><span class="n">fill_lon</span><span class="p">,</span> <span class="n">ts</span><span class="o">=</span><span class="n">fill_range</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">t</span><span class="p">)</span></div>
+    <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">t</span><span class="p">)</span>
 
 
-<div class="viewcode-block" id="impute_stationary_coordinates"><a class="viewcode-back" href="../../gps/index.html#gscapl.gps.impute_stationary_coordinates">[docs]</a><span class="k">def</span> <span class="nf">impute_stationary_coordinates</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">freq</span><span class="o">=</span><span class="s1">&#39;10Min&#39;</span><span class="p">,</span> <span class="n">metrics</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+<div class="viewcode-block" id="impute_stationary_coordinates"><a class="viewcode-back" href="../../gps/index.html#gscap.gps.impute_stationary_coordinates">[docs]</a><span class="k">def</span> <span class="nf">impute_stationary_coordinates</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">freq</span><span class="o">=</span><span class="s1">&#39;10Min&#39;</span><span class="p">,</span> <span class="n">metrics</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;resample a stream of `gps_records` boosting the number of points</span>
 <span class="sd">    spent at stationary positions. This method is used due to to how the</span>
 <span class="sd">    data were collected. GPS coordinates were recorded at either 15min</span>
@@ -1785,10 +1809,10 @@
 <span class="sd">    making density based clustering algorithms more effective.</span>
 
 <span class="sd">    Args:</span>
-<span class="sd">        records: (DataFrame)</span>
-<span class="sd">        freq: (str)</span>
-<span class="sd">        metrics: (bool)</span>
-<span class="sd">        verbose:</span>
+<span class="sd">        records: (DataFrame) containing lat, lon, and ts columns</span>
+<span class="sd">        freq: (str) as defined in the Pandas timeseries module</span>
+<span class="sd">        metrics: (bool) set to False to not include added metrics in return value</span>
+<span class="sd">        verbose: (bool) set to False to disable progress bar</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        [GPS]</span>
@@ -1803,13 +1827,21 @@
     <span class="n">cols</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;lat&#39;</span><span class="p">,</span> <span class="s1">&#39;lon&#39;</span><span class="p">,</span> <span class="s1">&#39;ts&#39;</span><span class="p">]</span>
     <span class="n">records</span> <span class="o">=</span> <span class="n">records</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="s1">&#39;ts&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
+    <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+        <span class="n">rng</span> <span class="o">=</span> <span class="n">tqdm</span><span class="p">(</span>
+            <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">records</span><span class="p">)),</span>
+            <span class="n">desc</span><span class="o">=</span><span class="s1">&#39;imputing coordinates&#39;</span>
+        <span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">rng</span> <span class="o">=</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">records</span><span class="p">))</span>
+
     <span class="n">x_</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span>
         <span class="k">lambda</span> <span class="n">t</span><span class="p">:</span> <span class="n">impute_between</span><span class="p">(</span><span class="o">*</span><span class="n">t</span><span class="p">,</span> <span class="n">freq</span><span class="p">),</span>
         <span class="p">[(</span>
             <span class="nb">tuple</span><span class="p">((</span><span class="n">v</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">records</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">i</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">cols</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">)),</span>
             <span class="nb">tuple</span><span class="p">((</span><span class="n">v</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">records</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">i</span><span class="p">,</span>   <span class="n">cols</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">))</span>
         <span class="p">)</span>
-            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">records</span><span class="p">))</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">rng</span>
         <span class="p">]</span>
     <span class="p">))</span>
 
@@ -1827,7 +1859,7 @@
         <span class="n">records</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">concat</span><span class="p">([</span><span class="n">records</span><span class="p">,</span> <span class="n">x</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">sort</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="s1">&#39;ts&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
     <span class="c1"># calculate velocities between the imputed locations</span>
-    <span class="n">records</span> <span class="o">=</span> <span class="n">process_velocities</span><span class="p">(</span><span class="n">records</span><span class="p">)</span>
+    <span class="n">records</span> <span class="o">=</span> <span class="n">process_velocities</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="n">verbose</span><span class="p">)</span>
     <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">records</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="n">start_cnt</span>
 
     <span class="c1"># make sure the beginning row for each day only has time_deltas into the current day</span>
@@ -1895,66 +1927,6 @@
 
     <span class="n">resampled</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="s1">&#39;gv&#39;</span><span class="p">,</span> <span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
     <span class="k">return</span> <span class="n">resampled</span>
-
-
-<span class="k">def</span> <span class="nf">prep_takeout_data</span><span class="p">(</span><span class="n">file_name</span><span class="p">):</span>
-    <span class="k">def</span> <span class="nf">arow</span><span class="p">(</span><span class="n">args</span><span class="p">):</span>
-        <span class="n">idx</span><span class="p">,</span> <span class="n">row</span> <span class="o">=</span> <span class="n">args</span>
-
-        <span class="n">j_</span> <span class="o">=</span> <span class="n">js</span><span class="o">.</span><span class="n">activity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
-        <span class="n">pbar</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-
-        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">j_</span><span class="p">,</span> <span class="nb">float</span><span class="p">):</span>
-            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
-
-        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">j_</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
-            <span class="k">try</span><span class="p">:</span>
-                <span class="k">return</span> <span class="n">j_</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s1">&#39;activity&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="s1">&#39;type&#39;</span><span class="p">]</span>
-            <span class="k">except</span><span class="p">:</span>
-                <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
-        <span class="k">else</span><span class="p">:</span>
-            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
-
-    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">file_name</span><span class="p">,</span> <span class="s1">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
-        <span class="n">js</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
-
-    <span class="n">js</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">js</span><span class="p">[</span><span class="s1">&#39;locations&#39;</span><span class="p">])</span>
-
-    <span class="k">if</span> <span class="s1">&#39;verticalAccuracy&#39;</span> <span class="ow">in</span> <span class="n">js</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
-        <span class="n">js</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="s1">&#39;verticalAccuracy&#39;</span><span class="p">,</span> <span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-
-    <span class="k">if</span> <span class="s1">&#39;altitude&#39;</span> <span class="ow">in</span> <span class="n">js</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
-        <span class="n">js</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="s1">&#39;altitude&#39;</span><span class="p">,</span> <span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-
-    <span class="k">if</span> <span class="s1">&#39;heading&#39;</span> <span class="ow">in</span> <span class="n">js</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
-        <span class="n">js</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="s1">&#39;heading&#39;</span><span class="p">,</span> <span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-
-    <span class="k">if</span> <span class="s1">&#39;velocity&#39;</span> <span class="ow">in</span> <span class="n">js</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
-        <span class="n">js</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="s1">&#39;velocity&#39;</span><span class="p">,</span> <span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-
-    <span class="n">js</span><span class="p">[</span><span class="s1">&#39;accuracy_ok&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">js</span><span class="o">.</span><span class="n">accuracy</span> <span class="o">&lt;</span> <span class="mi">150</span>
-
-    <span class="n">js</span><span class="o">.</span><span class="n">timestampMs</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">to_datetime</span><span class="p">(</span><span class="n">js</span><span class="o">.</span><span class="n">timestampMs</span><span class="p">,</span> <span class="n">unit</span><span class="o">=</span><span class="s1">&#39;ms&#39;</span><span class="p">)</span>
-
-    <span class="n">js</span><span class="o">.</span><span class="n">latitudeE7</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">js</span><span class="o">.</span><span class="n">latitudeE7</span><span class="o">/</span><span class="mf">10e6</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
-    <span class="n">js</span><span class="o">.</span><span class="n">longitudeE7</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">js</span><span class="o">.</span><span class="n">longitudeE7</span><span class="o">/</span><span class="mf">10e6</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
-
-    <span class="n">js</span><span class="p">[</span><span class="s1">&#39;date&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">js</span><span class="o">.</span><span class="n">timestampMs</span><span class="o">.</span><span class="n">progress_apply</span><span class="p">(</span><span class="n">dt</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">date</span><span class="p">)</span>
-
-    <span class="k">if</span> <span class="s1">&#39;activity&#39;</span> <span class="ow">in</span> <span class="n">js</span><span class="o">.</span><span class="n">columns</span><span class="p">:</span>
-        <span class="n">pool</span> <span class="o">=</span> <span class="n">TPool</span><span class="p">(</span><span class="n">mul</span><span class="o">.</span><span class="n">cpu_count</span><span class="p">())</span>
-
-        <span class="n">pbar</span> <span class="o">=</span> <span class="n">tqdm</span><span class="p">(</span><span class="n">total</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">js</span><span class="p">))</span>
-
-        <span class="n">js</span><span class="o">.</span><span class="n">activity</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">pool</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">arow</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">js</span><span class="o">.</span><span class="n">iterrows</span><span class="p">())))</span>
-
-        <span class="n">pool</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-        <span class="n">pool</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
-
-    <span class="n">js</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">{</span><span class="s1">&#39;latitudeE7&#39;</span><span class="p">:</span> <span class="s1">&#39;lat&#39;</span><span class="p">,</span> <span class="s1">&#39;longitudeE7&#39;</span><span class="p">:</span> <span class="s1">&#39;lon&#39;</span><span class="p">,</span> <span class="s1">&#39;timestampMs&#39;</span><span class="p">:</span> <span class="s1">&#39;ts&#39;</span><span class="p">},</span> <span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-
-    <span class="n">js</span> <span class="o">=</span> <span class="n">js</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">by</span><span class="o">=</span><span class="s1">&#39;ts&#39;</span><span class="p">)</span>
-    <span class="k">return</span> <span class="n">js</span>
 
 
 <span class="k">def</span> <span class="nf">__geo_distance_wrapper</span><span class="p">(</span><span class="n">args</span><span class="p">):</span>

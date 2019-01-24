@@ -8,7 +8,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>GPS and Clustering &mdash; GSCAP 0 documentation</title>
+  <title>GPS and Clustering &mdash; gSCAP 0 documentation</title>
   
 
   
@@ -29,7 +29,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Weather" href="../weather/index.html" />
-    <link rel="prev" title="Welcome to GSCAP’s documentation!" href="../index.html" /> 
+    <link rel="prev" title="Welcome to gSCAP’s documentation!" href="../index.html" /> 
 
   
   <script src="../_static/js/modernizr.min.js"></script>
@@ -48,7 +48,7 @@
           
 
           
-            <a href="../index.html" class="icon icon-home"> GSCAP
+            <a href="../index.html" class="icon icon-home"> gSCAP
           
 
           
@@ -102,7 +102,7 @@
       <nav class="wy-nav-top" aria-label="top navigation">
         
           <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
-          <a href="../index.html">GSCAP</a>
+          <a href="../index.html">gSCAP</a>
         
       </nav>
 
@@ -156,10 +156,10 @@
 <h1>GPS and Clustering<a class="headerlink" href="#gps-and-clustering" title="Permalink to this headline">¶</a></h1>
 <div class="toctree-wrapper compound">
 </div>
-<span class="target" id="module-gscapl.gps"></span><p>A collection of scripts for processing GPS streams</p>
+<span class="target" id="module-gscap.gps"></span><p>A collection of scripts for processing GPS streams</p>
 <dl class="function">
-<dt id="gscapl.gps.impute_stationary_coordinates">
-<code class="descclassname">gscapl.gps.</code><code class="descname">impute_stationary_coordinates</code><span class="sig-paren">(</span><em>records</em>, <em>freq='10Min'</em>, <em>metrics=True</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/gscapl/gps.html#impute_stationary_coordinates"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscapl.gps.impute_stationary_coordinates" title="Permalink to this definition">¶</a></dt>
+<dt id="gscap.gps.impute_stationary_coordinates">
+<code class="descclassname">gscap.gps.</code><code class="descname">impute_stationary_coordinates</code><span class="sig-paren">(</span><em>records</em>, <em>freq='10Min'</em>, <em>metrics=True</em>, <em>verbose=True</em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/gscap/gps.html#impute_stationary_coordinates"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#gscap.gps.impute_stationary_coordinates" title="Permalink to this definition">¶</a></dt>
 <dd><p>resample a stream of <cite>gps_records</cite> boosting the number of points
 spent at stationary positions. This method is used due to to how the
 data were collected. GPS coordinates were recorded at either 15min
@@ -172,10 +172,10 @@ making density based clustering algorithms more effective.</p>
 <col class="field-body" />
 <tbody valign="top">
 <tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
-<li><strong>records</strong> – (DataFrame)</li>
-<li><strong>freq</strong> – (str)</li>
-<li><strong>metrics</strong> – (bool)</li>
-<li><strong>verbose</strong></li>
+<li><strong>records</strong> – (DataFrame) containing lat, lon, and ts columns</li>
+<li><strong>freq</strong> – (str) as defined in the Pandas timeseries module</li>
+<li><strong>metrics</strong> – (bool) set to False to not include added metrics in return value</li>
+<li><strong>verbose</strong> – (bool) set to False to disable progress bar</li>
 </ul>
 </td>
 </tr>
@@ -199,7 +199,7 @@ making density based clustering algorithms more effective.</p>
         <a href="../weather/index.html" class="btn btn-neutral float-right" title="Weather" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
       
       
-        <a href="../index.html" class="btn btn-neutral" title="Welcome to GSCAP’s documentation!" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+        <a href="../index.html" class="btn btn-neutral" title="Welcome to gSCAP’s documentation!" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
       
     </div>
   

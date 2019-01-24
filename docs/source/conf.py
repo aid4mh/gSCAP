@@ -12,7 +12,7 @@ from recommonmark.parser import CommonMarkParser
 
 
 # -- Project information -----------------------------------------------------
-project = 'GSCAP'
+project = 'gSCAP'
 copyright = '2018, Luke Waninger, Abhishek Pratap'
 author = 'Luke Waninger, Abhishek Pratap'
 version = 'latest'

@@ -8,7 +8,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>gscapl.utils &mdash; gSCAP 0 documentation</title>
+  <title>gscap.utils &mdash; gSCAP 0 documentation</title>
   
 
   
@@ -131,7 +131,7 @@
         
           <li><a href="../index.html">Module code</a> &raquo;</li>
         
-      <li>gscapl.utils</li>
+      <li>gscap.utils</li>
     
     
       <li class="wy-breadcrumbs-aside">
@@ -146,7 +146,7 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
             
-  <h1>Source code for gscapl.utils</h1><div class="highlight"><pre>
+  <h1>Source code for gscap.utils</h1><div class="highlight"><pre>
 <span></span><span class="ch">#!/usr/bin/env python</span>
 
 <span class="sd">&quot;&quot;&quot; A collection of common scripts imported by both `gscap.gps&#39; and</span>
@@ -175,7 +175,14 @@
 <span class="sd">&quot;&quot;&quot;check for config file&quot;&quot;&quot;</span>
 <span class="n">config_file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">Path</span><span class="o">.</span><span class="n">home</span><span class="p">(),</span> <span class="s1">&#39;.gscapConfig&#39;</span><span class="p">)</span>
 <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">config_file</span><span class="p">):</span>
-    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;configuration file not found&#39;</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;GSCAP configuration file not found. See the &#39;</span>
+          <span class="s1">&#39;docs at https://uw-creativ-lab.github.io/gSCAP/ for more details.&#39;</span><span class="p">)</span>
+
+    <span class="n">CONFIG</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">GooglePlacesAPI</span><span class="o">=</span><span class="s1">&#39;AIza&#39;</span><span class="p">,</span>
+        <span class="n">YelpAPI</span><span class="o">=</span><span class="s1">&#39;none&#39;</span><span class="p">,</span>
+        <span class="n">DarkSkyAPI</span><span class="o">=</span><span class="s1">&#39;none&#39;</span>
+    <span class="p">)</span>
 <span class="k">else</span><span class="p">:</span>
     <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">config_file</span><span class="p">,</span> <span class="s1">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
         <span class="n">cf</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">readlines</span><span class="p">()</span>
@@ -187,7 +194,7 @@
     <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
     <span class="k">del</span> <span class="n">cf</span><span class="p">,</span> <span class="n">config_file</span><span class="p">,</span> <span class="n">f</span>
 
-<span class="n">CACHE_DIR</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="o">.</span><span class="n">home</span><span class="p">()),</span> <span class="s1">&#39;.gscapl&#39;</span><span class="p">)</span>
+<span class="n">CACHE_DIR</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="o">.</span><span class="n">home</span><span class="p">()),</span> <span class="s1">&#39;.gscap&#39;</span><span class="p">)</span>
 <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">CACHE_DIR</span><span class="p">):</span>
     <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">CACHE_DIR</span><span class="p">)</span>
 
@@ -203,7 +210,7 @@
 <span class="k">del</span> <span class="n">zname</span>
 
 
-<div class="viewcode-block" id="isint"><a class="viewcode-back" href="../../utils/index.html#gscapl.utils.isint">[docs]</a><span class="k">def</span> <span class="nf">isint</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+<div class="viewcode-block" id="isint"><a class="viewcode-back" href="../../utils/index.html#gscap.utils.isint">[docs]</a><span class="k">def</span> <span class="nf">isint</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;Determine if provided object is convertible to an int</span>
 
 <span class="sd">    Args:</span>
@@ -222,7 +229,7 @@
         <span class="k">return</span> <span class="kc">False</span></div>
 
 
-<div class="viewcode-block" id="isfloat"><a class="viewcode-back" href="../../utils/index.html#gscapl.utils.isfloat">[docs]</a><span class="k">def</span> <span class="nf">isfloat</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+<div class="viewcode-block" id="isfloat"><a class="viewcode-back" href="../../utils/index.html#gscap.utils.isfloat">[docs]</a><span class="k">def</span> <span class="nf">isfloat</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;Determine if provided object is convertible to a float</span>
 
 <span class="sd">    Args:</span>
@@ -241,7 +248,7 @@
         <span class="k">return</span> <span class="kc">False</span></div>
 
 
-<div class="viewcode-block" id="dd_from_zip"><a class="viewcode-back" href="../../utils/index.html#gscapl.utils.dd_from_zip">[docs]</a><span class="k">def</span> <span class="nf">dd_from_zip</span><span class="p">(</span><span class="n">zipcode</span><span class="p">):</span>
+<div class="viewcode-block" id="dd_from_zip"><a class="viewcode-back" href="../../utils/index.html#gscap.utils.dd_from_zip">[docs]</a><span class="k">def</span> <span class="nf">dd_from_zip</span><span class="p">(</span><span class="n">zipcode</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;Get the latitude and longitude coordinate pair for the center of the provided zipcode</span>
 
 <span class="sd">    Args:</span>
@@ -260,7 +267,7 @@
         <span class="k">return</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span></div>
 
 
-<div class="viewcode-block" id="zip_from_dd"><a class="viewcode-back" href="../../utils/index.html#gscapl.utils.zip_from_dd">[docs]</a><span class="k">def</span> <span class="nf">zip_from_dd</span><span class="p">(</span><span class="n">lat</span><span class="p">,</span> <span class="n">lon</span><span class="p">,</span> <span class="n">maxd</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">maxsize</span><span class="p">,</span> <span class="n">suppress_warnings</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<div class="viewcode-block" id="zip_from_dd"><a class="viewcode-back" href="../../utils/index.html#gscap.utils.zip_from_dd">[docs]</a><span class="k">def</span> <span class="nf">zip_from_dd</span><span class="p">(</span><span class="n">lat</span><span class="p">,</span> <span class="n">lon</span><span class="p">,</span> <span class="n">maxd</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">maxsize</span><span class="p">,</span> <span class="n">suppress_warnings</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;Get the closest zipcode to a latitude, longitude coordinate pair</span>
 
 <span class="sd">    Args:</span>
@@ -302,7 +309,7 @@
         <span class="k">return</span> <span class="o">-</span><span class="mi">1</span></div>
 
 
-<div class="viewcode-block" id="tz_from_dd"><a class="viewcode-back" href="../../utils/index.html#gscapl.utils.tz_from_dd">[docs]</a><span class="k">def</span> <span class="nf">tz_from_dd</span><span class="p">(</span><span class="n">points</span><span class="p">):</span>
+<div class="viewcode-block" id="tz_from_dd"><a class="viewcode-back" href="../../utils/index.html#gscap.utils.tz_from_dd">[docs]</a><span class="k">def</span> <span class="nf">tz_from_dd</span><span class="p">(</span><span class="n">points</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;Get the timezone for a coordinate pair</span>
 
 <span class="sd">    Args:</span>
@@ -322,7 +329,7 @@
     <span class="k">return</span> <span class="n">x</span></div>
 
 
-<div class="viewcode-block" id="tz_from_zip"><a class="viewcode-back" href="../../utils/index.html#gscapl.utils.tz_from_zip">[docs]</a><span class="k">def</span> <span class="nf">tz_from_zip</span><span class="p">(</span><span class="n">zipcode</span><span class="p">):</span>
+<div class="viewcode-block" id="tz_from_zip"><a class="viewcode-back" href="../../utils/index.html#gscap.utils.tz_from_zip">[docs]</a><span class="k">def</span> <span class="nf">tz_from_zip</span><span class="p">(</span><span class="n">zipcode</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;Get the timezone from a zipcode</span>
 
 <span class="sd">    Args:</span>
@@ -343,7 +350,7 @@
     <span class="k">return</span> <span class="n">tz_from_dd</span><span class="p">(</span><span class="n">points</span><span class="p">)</span></div>
 
 
-<div class="viewcode-block" id="geo_distance"><a class="viewcode-back" href="../../utils/index.html#gscapl.utils.geo_distance">[docs]</a><span class="k">def</span> <span class="nf">geo_distance</span><span class="p">(</span><span class="n">lat1</span><span class="p">,</span> <span class="n">lon1</span><span class="p">,</span> <span class="n">lat2</span><span class="p">,</span> <span class="n">lon2</span><span class="p">):</span>
+<div class="viewcode-block" id="geo_distance"><a class="viewcode-back" href="../../utils/index.html#gscap.utils.geo_distance">[docs]</a><span class="k">def</span> <span class="nf">geo_distance</span><span class="p">(</span><span class="n">lat1</span><span class="p">,</span> <span class="n">lon1</span><span class="p">,</span> <span class="n">lat2</span><span class="p">,</span> <span class="n">lon2</span><span class="p">):</span>
     <span class="sd">&quot;&quot;&quot;calculates the geographic distance between coordinates</span>
 <span class="sd">    https://www.movable-type.co.uk/scripts/latlong.html</span>
 
@@ -391,6 +398,39 @@
 
     <span class="k">if</span> <span class="o">-</span><span class="mi">180</span> <span class="o">&gt;</span> <span class="n">lon</span> <span class="ow">or</span> <span class="n">lon</span> <span class="o">&gt;</span> <span class="mi">180</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s1">&#39;Longitude must be in valid range: -180 &lt; lon &lt; 180.&#39;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="load_config"><a class="viewcode-back" href="../../utils/index.html#gscap.utils.load_config">[docs]</a><span class="k">def</span> <span class="nf">load_config</span><span class="p">(</span><span class="n">fn</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Load a configuration file</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        fn: (str) file path</span>
+<span class="sd">        kwargs</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">fn</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">FileNotFoundError</span>
+
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">fn</span><span class="p">,</span> <span class="s1">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">cf</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">readlines</span><span class="p">()</span>
+
+        <span class="c1"># read each line of the file into a dictionary as a key value pair separated with an &#39;=&#39;</span>
+        <span class="c1"># ignore lines beginning with &#39;#&#39;</span>
+        <span class="nb">print</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="p">[</span><span class="nb">list</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span> <span class="n">l</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;=&#39;</span><span class="p">)))</span> <span class="k">for</span> <span class="n">l</span> <span class="ow">in</span> <span class="n">cf</span> <span class="k">if</span> <span class="n">l</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="s1">&#39;#&#39;</span><span class="p">]:</span>
+            <span class="n">CONFIG</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">v</span>
+            <span class="nb">print</span><span class="p">(</span><span class="n">f</span><span class="s1">&#39;loaded key for </span><span class="si">{k}</span><span class="s1">&#39;</span><span class="p">)</span>
+
+        <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="n">kwargs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="s1">&#39;destination_path&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+        <span class="n">dp</span> <span class="o">=</span> <span class="n">kwargs</span><span class="p">[</span><span class="s1">&#39;destination_path&#39;</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">dp</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">Path</span><span class="o">.</span><span class="n">home</span><span class="p">(),</span> <span class="s1">&#39;.gscapConfig&#39;</span><span class="p">)</span>
+
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">dp</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">CONFIG</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">f</span><span class="s1">&#39;</span><span class="si">{k}</span><span class="s1">=</span><span class="si">{v}</span><span class="s1">&#39;</span><span class="p">)</span></div>
 
 
 <span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s1">&#39;__main__&#39;</span><span class="p">:</span>

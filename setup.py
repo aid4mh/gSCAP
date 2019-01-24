@@ -27,7 +27,7 @@ setuptools.setup(
         'scipy==1.1.0',
         'SQLAlchemy==1.2.12',
         'urllib3==1.23',
-        'synapseclient>=1.9.0'
+        'tqdm>=4.29.1'
     ],
     python_requires='>=3.6',
     include_package_data=True,

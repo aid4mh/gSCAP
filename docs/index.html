@@ -8,7 +8,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>Welcome to GSCAP’s documentation! &mdash; GSCAP 0 documentation</title>
+  <title>Welcome to gSCAP’s documentation! &mdash; gSCAP 0 documentation</title>
   
 
   
@@ -47,7 +47,7 @@
           
 
           
-            <a href="#" class="icon icon-home"> GSCAP
+            <a href="#" class="icon icon-home"> gSCAP
           
 
           
@@ -99,7 +99,7 @@
       <nav class="wy-nav-top" aria-label="top navigation">
         
           <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
-          <a href="#">GSCAP</a>
+          <a href="#">gSCAP</a>
         
       </nav>
 
@@ -130,7 +130,7 @@
     
       <li><a href="#">Docs</a> &raquo;</li>
         
-      <li>Welcome to GSCAP’s documentation!</li>
+      <li>Welcome to gSCAP’s documentation!</li>
     
     
       <li class="wy-breadcrumbs-aside">
@@ -150,7 +150,7 @@
            <div itemprop="articleBody">
             
   <div class="section" id="welcome-to-gscap-s-documentation">
-<h1>Welcome to GSCAP’s documentation!<a class="headerlink" href="#welcome-to-gscap-s-documentation" title="Permalink to this headline">¶</a></h1>
+<h1>Welcome to gSCAP’s documentation!<a class="headerlink" href="#welcome-to-gscap-s-documentation" title="Permalink to this headline">¶</a></h1>
 <div class="toctree-wrapper compound">
 <ul>
 <li class="toctree-l1"><a class="reference internal" href="gps/index.html">GPS and Clustering</a><ul class="simple">
@@ -163,6 +163,30 @@
 </ul>
 </li>
 </ul>
+</div>
+<div class="section" id="installation-and-configuration">
+<h2>Installation and Configuration<a class="headerlink" href="#installation-and-configuration" title="Permalink to this headline">¶</a></h2>
+<dl class="docutils">
+<dt>The module can be installed from the source repo using pip</dt>
+<dd><code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">git+https://github.com/UW-Creativ-Lab/gSCAP</span></code></dd>
+</dl>
+<p>Several methods within the module use external APIs to extract semantic context. A configure file must be present
+in the user’s home directory titled ‘.gscapConfig’ or loaded via <code class="docutils literal notranslate"><span class="pre">`utils.load_config(file_path)`</span></code>.
+The file should contain each API key on a separate line, separated by an equals sign as shown in the example below.:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">GooglePlacesAPI</span><span class="o">=</span><span class="n">YourKey</span>
+<span class="n">YelpAPI</span><span class="o">=</span><span class="n">YourKey</span>
+<span class="n">DarkSkyAPI</span><span class="o">=</span><span class="n">YourKey</span>
+</pre></div>
+</div>
+<dl class="docutils">
+<dt>More information for each API can be found at the following links:</dt>
+<dd><ul class="first last simple">
+<li>Google Places: <a class="reference external" href="https://developers.google.com/places">https://developers.google.com/places</a></li>
+<li>Yelp: <a class="reference external" href="https://www.yelp.com/fusion">https://www.yelp.com/fusion</a></li>
+<li>DarkSky: <a class="reference external" href="https://darksky.net/dev">https://darksky.net/dev</a></li>
+</ul>
+</dd>
+</dl>
 </div>
 </div>
 

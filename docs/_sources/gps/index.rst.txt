@@ -5,6 +5,6 @@ GPS and Clustering
    :maxdepth: 2
    :caption: Contents:
 
-.. automodule:: gscapl.gps
+.. automodule:: gscap.gps
    :members: impute_stationary_coordinates
    :member-order: bysource

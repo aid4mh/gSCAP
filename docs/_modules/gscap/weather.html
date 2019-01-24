@@ -8,7 +8,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>gscapl.weather &mdash; gSCAP 0 documentation</title>
+  <title>gscap.weather &mdash; gSCAP 0 documentation</title>
   
 
   
@@ -131,7 +131,7 @@
         
           <li><a href="../index.html">Module code</a> &raquo;</li>
         
-      <li>gscapl.weather</li>
+      <li>gscap.weather</li>
     
     
       <li class="wy-breadcrumbs-aside">
@@ -146,7 +146,7 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
             
-  <h1>Source code for gscapl.weather</h1><div class="highlight"><pre>
+  <h1>Source code for gscap.weather</h1><div class="highlight"><pre>
 <span></span><span class="ch">#!/usr/bin/env python</span>
 
 <span class="sd">&quot;&quot;&quot; A collection of scripts for gathering weather data &quot;&quot;&quot;</span>
@@ -156,9 +156,9 @@
 <span class="kn">import</span> <span class="nn">datetime</span> <span class="k">as</span> <span class="nn">dt</span>
 <span class="kn">import</span> <span class="nn">multiprocessing</span> <span class="k">as</span> <span class="nn">mul</span>
 <span class="kn">import</span> <span class="nn">requests</span>
+<span class="kn">from</span> <span class="nn">requests.exceptions</span> <span class="k">import</span> <span class="ne">ConnectionError</span>
 <span class="kn">from</span> <span class="nn">sqlite3</span> <span class="k">import</span> <span class="n">dbapi2</span> <span class="k">as</span> <span class="n">sqlite</span>
 <span class="kn">import</span> <span class="nn">time</span>
-<span class="kn">from</span> <span class="nn">urllib3.exceptions</span> <span class="k">import</span> <span class="n">NewConnectionError</span>
 
 <span class="kn">from</span> <span class="nn">sqlalchemy</span> <span class="k">import</span> <span class="n">and_</span>
 <span class="kn">from</span> <span class="nn">sqlalchemy</span> <span class="k">import</span> <span class="n">create_engine</span>
@@ -168,7 +168,7 @@
 <span class="kn">from</span> <span class="nn">sqlalchemy.ext.declarative</span> <span class="k">import</span> <span class="n">declarative_base</span>
 <span class="kn">from</span> <span class="nn">sqlalchemy.ext.hybrid</span> <span class="k">import</span> <span class="n">hybrid_property</span>
 
-<span class="kn">from</span> <span class="nn">gscapl.utils</span> <span class="k">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="nn">gscap.utils</span> <span class="k">import</span> <span class="o">*</span>
 
 
 <span class="n">__author__</span> <span class="o">=</span> <span class="s1">&#39;Luke Waninger&#39;</span>
@@ -185,10 +185,10 @@
 <span class="sd">&quot;&quot;&quot; Dark Sky API url &quot;&quot;&quot;</span>
 <span class="n">DARK_SKY_URL</span> <span class="o">=</span> <span class="s1">&#39;https://api.darksky.net/forecast&#39;</span>
 
-<span class="n">CONNECTION_RESET_ATTEMPTS</span> <span class="o">=</span> <span class="mi">99</span>
+<span class="n">CONNECTION_RESET_ATTEMPTS</span> <span class="o">=</span> <span class="mi">3</span>
 <span class="sd">&quot;&quot;&quot;How many times to retry a network timeout &quot;&quot;&quot;</span>
 
-<span class="n">CONNECTION_WAIT_TIME</span> <span class="o">=</span> <span class="mi">60</span>
+<span class="n">CONNECTION_WAIT_TIME</span> <span class="o">=</span> <span class="mi">3</span>
 <span class="sd">&quot;&quot;&quot;Seconds to wait between each failed network attempt&quot;&quot;&quot;</span>
 
 <span class="sd">&quot;&quot;&quot;Dark Sky hourly call columns&quot;&quot;&quot;</span>
@@ -205,7 +205,7 @@
 <span class="n">Base</span> <span class="o">=</span> <span class="n">declarative_base</span><span class="p">()</span>
 
 
-<div class="viewcode-block" id="HourlyWeatherReport"><a class="viewcode-back" href="../../weather/index.html#gscapl.weather.HourlyWeatherReport">[docs]</a><span class="k">class</span> <span class="nc">HourlyWeatherReport</span><span class="p">(</span><span class="n">Base</span><span class="p">):</span>
+<span class="k">class</span> <span class="nc">HourlyWeatherReport</span><span class="p">(</span><span class="n">Base</span><span class="p">):</span>
     <span class="n">__tablename__</span> <span class="o">=</span> <span class="s1">&#39;hourly&#39;</span>
 
     <span class="n">lat</span> <span class="o">=</span> <span class="n">Column</span><span class="p">(</span><span class="n">Float</span><span class="p">,</span> <span class="n">primary_key</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
@@ -277,8 +277,17 @@
     <span class="k">def</span> <span class="nf">from_tuple</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tup</span><span class="p">):</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">lat</span> <span class="o">=</span> <span class="n">tup</span><span class="o">.</span><span class="n">lat</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">lon</span> <span class="o">=</span> <span class="n">tup</span><span class="o">.</span><span class="n">lon</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">date</span> <span class="o">=</span> <span class="n">tup</span><span class="o">.</span><span class="n">date</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">time</span> <span class="o">=</span> <span class="n">tup</span><span class="o">.</span><span class="n">time</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">tup</span><span class="o">.</span><span class="n">date</span><span class="p">,</span> <span class="n">dt</span><span class="o">.</span><span class="n">datetime</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">date</span> <span class="o">=</span> <span class="n">tup</span><span class="o">.</span><span class="n">date</span><span class="o">.</span><span class="n">date</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">date</span> <span class="o">=</span> <span class="n">tup</span><span class="o">.</span><span class="n">date</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">tup</span><span class="o">.</span><span class="n">time</span><span class="p">,</span> <span class="n">dt</span><span class="o">.</span><span class="n">datetime</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">time</span> <span class="o">=</span> <span class="n">tup</span><span class="o">.</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">time</span> <span class="o">=</span> <span class="n">tup</span><span class="o">.</span><span class="n">time</span>
+
         <span class="bp">self</span><span class="o">.</span><span class="n">apparentTemperature</span> <span class="o">=</span> <span class="n">tup</span><span class="o">.</span><span class="n">apparentTemperature</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">cloudCover</span> <span class="o">=</span> <span class="n">tup</span><span class="o">.</span><span class="n">cloudCover</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">cloudCoverError</span> <span class="o">=</span> <span class="n">tup</span><span class="o">.</span><span class="n">cloudCoverError</span>
@@ -308,7 +317,7 @@
     <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">f</span><span class="s1">&#39;HWR&lt;(lat=</span><span class="si">{self.lat}</span><span class="s1">, &#39;</span> \
                <span class="n">f</span><span class="s1">&#39;lon=</span><span class="si">{self.lon}</span><span class="s1">, &#39;</span> \
-               <span class="n">f</span><span class="s1">&#39;date={self.time.isoformat()})&gt;&#39;</span></div>
+               <span class="n">f</span><span class="s1">&#39;date={self.time.isoformat()})&gt;&#39;</span>
 
 
 <span class="nd">@contextmanager</span>
@@ -374,7 +383,7 @@
                 <span class="n">finished</span> <span class="o">=</span> <span class="kc">True</span>
 
 
-<div class="viewcode-block" id="weather_report"><a class="viewcode-back" href="../../weather/index.html#gscapl.weather.weather_report">[docs]</a><span class="k">def</span> <span class="nf">weather_report</span><span class="p">(</span>
+<div class="viewcode-block" id="weather_report"><a class="viewcode-back" href="../../weather/index.html#gscap.weather.weather_report">[docs]</a><span class="k">def</span> <span class="nf">weather_report</span><span class="p">(</span>
         <span class="n">request</span><span class="p">,</span> <span class="n">summarize</span><span class="o">=</span><span class="s1">&#39;daily&#39;</span><span class="p">,</span> <span class="n">n_jobs</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">progress_qu</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">kwargs</span><span class="o">=</span><span class="kc">None</span>
 <span class="p">):</span>
 
@@ -547,16 +556,16 @@
 
     <span class="n">key</span> <span class="o">=</span> <span class="n">CONFIG</span><span class="p">[</span><span class="s1">&#39;DarkSkyAPI&#39;</span><span class="p">]</span>
 
+    <span class="k">if</span> <span class="n">request</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">update_progress</span><span class="p">(</span><span class="n">progress_qu</span><span class="p">)</span>
+        <span class="k">return</span> <span class="kc">None</span>
+
     <span class="n">day</span> <span class="o">=</span> <span class="n">dt</span><span class="o">.</span><span class="n">datetime</span><span class="p">(</span>
         <span class="n">year</span><span class="o">=</span><span class="n">request</span><span class="o">.</span><span class="n">date</span><span class="o">.</span><span class="n">year</span><span class="p">,</span>
         <span class="n">month</span><span class="o">=</span><span class="n">request</span><span class="o">.</span><span class="n">date</span><span class="o">.</span><span class="n">month</span><span class="p">,</span>
         <span class="n">day</span><span class="o">=</span><span class="n">request</span><span class="o">.</span><span class="n">date</span><span class="o">.</span><span class="n">day</span><span class="p">,</span>
         <span class="n">hour</span><span class="o">=</span><span class="mi">12</span>
     <span class="p">)</span>
-
-    <span class="k">if</span> <span class="n">request</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-        <span class="n">update_progress</span><span class="p">(</span><span class="n">progress_qu</span><span class="p">)</span>
-        <span class="k">return</span> <span class="n">make_empty</span><span class="p">(</span><span class="n">day</span><span class="p">)</span>
 
     <span class="n">my_pid</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">()</span>
     <span class="n">request_qu</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="n">pid</span><span class="o">=</span><span class="n">my_pid</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s1">&#39;get&#39;</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(</span>
@@ -577,17 +586,19 @@
 
     <span class="c1"># if we made it this far, we had a cache miss so make the request</span>
     <span class="n">a</span><span class="p">,</span> <span class="n">call_complete</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="kc">False</span>
-    <span class="k">while</span> <span class="n">a</span> <span class="o">&lt;</span> <span class="n">CONNECTION_RESET_ATTEMPTS</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">call_complete</span><span class="p">:</span>
+    <span class="k">while</span> <span class="ow">not</span> <span class="n">call_complete</span><span class="p">:</span>
         <span class="k">try</span><span class="p">:</span>
-            <span class="n">r</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
-                <span class="n">f</span><span class="s1">&#39;</span><span class="si">{DARK_SKY_URL}</span><span class="s1">/</span><span class="si">{key}</span><span class="s1">/</span><span class="si">{request.lat}</span><span class="s1">,</span><span class="si">{request.lon}</span><span class="s1">,{int(day.timestamp())}&#39;</span>
-            <span class="p">)</span>
+            <span class="n">url</span> <span class="o">=</span> <span class="n">f</span><span class="s1">&#39;</span><span class="si">{DARK_SKY_URL}</span><span class="s1">/</span><span class="si">{key}</span><span class="s1">/</span><span class="si">{request.lat}</span><span class="s1">,</span><span class="si">{request.lon}</span><span class="s1">,{int(day.timestamp())}&#39;</span>
+            <span class="n">r</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+
             <span class="n">call_complete</span> <span class="o">=</span> <span class="kc">True</span>
-        <span class="k">except</span> <span class="n">NewConnectionError</span><span class="p">:</span>
+        <span class="k">except</span> <span class="ne">ConnectionError</span><span class="p">:</span>
             <span class="n">a</span> <span class="o">+=</span> <span class="mi">1</span>
             <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">CONNECTION_WAIT_TIME</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">a</span> <span class="o">==</span> <span class="n">CONNECTION_RESET_ATTEMPTS</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ConnectionError</span>
         <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-            <span class="nb">print</span><span class="p">(</span><span class="n">f</span><span class="s1">&#39;</span><span class="se">\n</span><span class="si">{a}</span><span class="s1"> connection reset attempts failed</span><span class="se">\n</span><span class="s1">&#39;</span><span class="p">)</span>
             <span class="k">raise</span> <span class="n">e</span>
 
     <span class="c1"># make sure the web result is valid</span>
@@ -609,11 +620,11 @@
     <span class="k">else</span><span class="p">:</span>
         <span class="n">c</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="n">HOURLY_COLS</span><span class="p">)</span>
         <span class="n">t</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">HOURLY_COLS</span><span class="p">}</span>
+        <span class="n">c</span><span class="p">[</span><span class="s1">&#39;time&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">dt</span><span class="o">.</span><span class="n">time</span><span class="p">(</span><span class="n">hour</span><span class="o">=</span><span class="mi">12</span><span class="p">,</span> <span class="n">minute</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">second</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
         <span class="n">c</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">t</span>
 
     <span class="c1"># cache the results</span>
     <span class="n">c</span><span class="p">[</span><span class="s1">&#39;lat&#39;</span><span class="p">],</span> <span class="n">c</span><span class="p">[</span><span class="s1">&#39;lon&#39;</span><span class="p">],</span> <span class="n">c</span><span class="p">[</span><span class="s1">&#39;date&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">lat</span><span class="p">,</span> <span class="n">request</span><span class="o">.</span><span class="n">lon</span><span class="p">,</span> <span class="n">day</span><span class="o">.</span><span class="n">date</span><span class="p">()</span>
-    <span class="n">c</span><span class="p">[</span><span class="s1">&#39;time&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">c</span><span class="o">.</span><span class="n">time</span><span class="o">.</span><span class="n">apply</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="o">.</span><span class="n">time</span><span class="p">())</span>
     <span class="n">c</span><span class="p">[</span><span class="s1">&#39;zipcode&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">zipcode</span>
 
     <span class="c1"># ensure any columns not returned from dark sky are still in the df</span>

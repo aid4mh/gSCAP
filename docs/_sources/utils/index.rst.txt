@@ -5,6 +5,6 @@ Utilities
    :maxdepth: 2
    :caption: Contents:
 
-.. automodule:: gscapl.utils
+.. automodule:: gscap.utils
    :members:
    :member-order: bysource
