@@ -171,7 +171,7 @@ class TestGPS(TestCase):
 
         fn = 'some_config'
         if not os.path.exists(fn):
-            fn = os.path.join('some_config', fn)
+            fn = os.path.join('tests', fn)
 
         destination = 'testConfig'
         message = self.capture_out(
