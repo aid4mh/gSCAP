@@ -281,7 +281,7 @@ def load_config(fn, kwargs=None):
 
     with open(dp, 'w') as f:
         for k, v in CONFIG.items():
-            f.write(f'{k}={v}')
+            f.writelines(f'{k}={v}')
 
 
 if __name__ == '__main__':

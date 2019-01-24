@@ -169,14 +169,14 @@ class TestGPS(TestCase):
     def test_load_config(self):
         self.assertRaises(FileNotFoundError, utils.load_config, 'notfound')
 
-        fn = 'testConfig'
+        fn = 'some_config'
         if not os.path.exists(fn):
-            fn = os.path.join('tests', fn)
+            fn = os.path.join('some_config', fn)
 
-
+        destination = 'testConfig'
         message = self.capture_out(
             utils.load_config,
-            ('some_config', dict(destination_path=fn))
+            (fn, dict(destination_path=destination))
         )
         self.assertTrue('loaded key for' in message)
 
@@ -188,4 +188,5 @@ class TestGPS(TestCase):
             c in ['GooglePlacesAPI', 'DarkSkyAPI', 'YelpAPI']
             for c in cf.keys()
         ]))
-        self.assertTrue(os.path.exists(fn))
+        self.assertTrue(os.path.exists(destination))
+        os.remove(destination)
