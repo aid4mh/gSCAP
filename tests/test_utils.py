@@ -170,8 +170,8 @@ class TestGPS(TestCase):
         self.assertRaises(FileNotFoundError, utils.load_config, 'notfound')
 
         fn = 'testConfig'
-        if os.path.exists(fn):
-            os.remove(fn)
+        if not os.path.exists(fn):
+            fn = os.path.join('tests', fn)
 
         message = self.capture_out(
             utils.load_config,
@@ -189,4 +189,3 @@ class TestGPS(TestCase):
         ]))
 
         self.assertTrue(os.path.exists(fn))
-        os.remove(fn)
