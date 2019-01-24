@@ -7,9 +7,9 @@ from contextlib import contextmanager
 import datetime as dt
 import multiprocessing as mul
 import requests
+from requests.exceptions import ConnectionError
 from sqlite3 import dbapi2 as sqlite
 import time
-from urllib3.exceptions import NewConnectionError
 
 from sqlalchemy import and_
 from sqlalchemy import create_engine
@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
 
-from gscapl.utils import *
+from gscap.utils import *
 
 
 __author__ = 'Luke Waninger'
@@ -36,10 +36,10 @@ __status__ = 'development'
 """ Dark Sky API url """
 DARK_SKY_URL = 'https://api.darksky.net/forecast'
 
-CONNECTION_RESET_ATTEMPTS = 99
+CONNECTION_RESET_ATTEMPTS = 3
 """How many times to retry a network timeout """
 
-CONNECTION_WAIT_TIME = 60
+CONNECTION_WAIT_TIME = 3
 """Seconds to wait between each failed network attempt"""
 
 """Dark Sky hourly call columns"""
@@ -398,16 +398,16 @@ def process_request(args):
 
     key = CONFIG['DarkSkyAPI']
 
+    if request is None:
+        update_progress(progress_qu)
+        return None
+
     day = dt.datetime(
         year=request.date.year,
         month=request.date.month,
         day=request.date.day,
         hour=12
     )
-
-    if request is None:
-        update_progress(progress_qu)
-        return make_empty(day)
 
     my_pid = os.getpid()
     request_qu.put(dict(pid=my_pid, type='get', args=(
@@ -428,17 +428,19 @@ def process_request(args):
 
     # if we made it this far, we had a cache miss so make the request
     a, call_complete = 0, False
-    while a < CONNECTION_RESET_ATTEMPTS and not call_complete:
+    while not call_complete:
         try:
-            r = requests.get(
-                f'{DARK_SKY_URL}/{key}/{request.lat},{request.lon},{int(day.timestamp())}'
-            )
+            url = f'{DARK_SKY_URL}/{key}/{request.lat},{request.lon},{int(day.timestamp())}'
+            r = requests.get(url)
+
             call_complete = True
-        except NewConnectionError:
+        except ConnectionError:
             a += 1
             time.sleep(CONNECTION_WAIT_TIME)
+
+            if a == CONNECTION_RESET_ATTEMPTS:
+                raise ConnectionError
         except Exception as e:
-            print(f'\n{a} connection reset attempts failed\n')
             raise e
 
     # make sure the web result is valid
@@ -460,11 +462,11 @@ def process_request(args):
     else:
         c = pd.DataFrame(columns=HOURLY_COLS)
         t = {k: np.nan for k in HOURLY_COLS}
+        c['time'] = dt.time(hour=12, minute=0, second=0)
         c.loc[-1] = t
 
     # cache the results
     c['lat'], c['lon'], c['date'] = request.lat, request.lon, day.date()
-    c['time'] = c.time.apply(lambda x: x.time())
     c['zipcode'] = request.zipcode
 
     # ensure any columns not returned from dark sky are still in the df
