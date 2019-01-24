@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
 
-from gscapl.utils import *
+from gscap.utils import *
 
 
 __author__ = 'Luke Waninger'

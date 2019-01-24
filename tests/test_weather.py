@@ -12,7 +12,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.session import Session
 
-import gscapl.weather as wthr
+import gscap.weather as wthr
 
 
 class TestWeather(TestCase):
