@@ -4,7 +4,7 @@ with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="gscapl",
+    name="gscap",
     version="0.0.0.5",
     author="Luke Waninger",
     author_email="luke.waninger@gmail.com",

@@ -45,7 +45,7 @@ else:
     f.close()
     del cf, config_file, f
 
-CACHE_DIR = os.path.join(str(Path.home()), '.gscapl')
+CACHE_DIR = os.path.join(str(Path.home()), '.gscap')
 if not os.path.exists(CACHE_DIR):
     os.mkdir(CACHE_DIR)
 

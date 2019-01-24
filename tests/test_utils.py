@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from gscapl import utils
+from gscap import utils
 
 
 class TestGPS(TestCase):

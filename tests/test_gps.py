@@ -13,7 +13,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.session import Session
 
-from gscapl import gps
+from gscap import gps
 
 
 class TestGPS(TestCase):

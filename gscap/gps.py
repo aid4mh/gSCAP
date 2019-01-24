@@ -25,7 +25,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
 from tqdm import tqdm
 
-from gscapl.utils import *
+from gscap.utils import *
 
 __author__ = 'Luke Waninger'
 __copyright__ = 'Copyright 2018, University of Washington'
