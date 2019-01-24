@@ -26,8 +26,8 @@ __status__ = 'development'
 """check for config file"""
 config_file = os.path.join(Path.home(), '.gscapConfig')
 if not os.path.exists(config_file):
-    print('GSCAP configuration file not found. In order to use API wrappers a configuration file named .gscapConfig '
-          'must live in your home directory. See the docs for more details.')
+    print('GSCAP configuration file not found. See the '
+          'docs at https://uw-creativ-lab.github.io/gSCAP/ for more details.')
 
     CONFIG = dict(
         GooglePlacesAPI='AIza',
@@ -249,6 +249,39 @@ def lat_lon_range_check(lat, lon):
 
     if -180 > lon or lon > 180:
         raise ValueError('Longitude must be in valid range: -180 < lon < 180.')
+
+
+def load_config(fn, kwargs=None):
+    """Load a configuration file
+
+    Args:
+        fn: (str) file path
+        kwargs
+    """
+    if not os.path.exists(fn):
+        raise FileNotFoundError
+
+    else:
+        with open(fn, 'r') as f:
+            cf = f.readlines()
+
+        # read each line of the file into a dictionary as a key value pair separated with an '='
+        # ignore lines beginning with '#'
+        print()
+        for k, v in [list(map(lambda x: x.strip(), l.split('='))) for l in cf if l[0] != '#']:
+            CONFIG[k] = v
+            print(f'loaded key for {k}')
+
+        f.close()
+
+    if kwargs is not None and 'destination_path' in kwargs.keys():
+        dp = kwargs['destination_path']
+    else:
+        dp = os.path.join(Path.home(), '.gscapConfig')
+
+    with open(dp, 'w') as f:
+        for k, v in CONFIG.items():
+            f.write(f'{k}={v}')
 
 
 if __name__ == '__main__':

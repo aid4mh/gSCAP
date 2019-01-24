@@ -8,7 +8,6 @@ import datetime as dt
 from enum import Enum
 import json
 import multiprocessing as mul
-from multiprocessing.dummy import Pool as TPool
 import re
 import requests
 from requests.exceptions import ConnectionError
@@ -797,7 +796,7 @@ def cluster_metrics(clusters, entries):
         return None
 
 
-def process_velocities(records):
+def process_velocities(records, verbose=True):
     cols = ['lat', 'lon', 'ts']
 
     if isinstance(records, list):
@@ -830,12 +829,20 @@ def process_velocities(records):
         return metrics
 
     # rolling window calculating velocities between rows i and i-1
+    if verbose:
+        rng = tqdm(
+            range(1, len(records)),
+            desc='processing metrics'
+        )
+    else:
+        rng = range(1, len(records))
+
     x = list(map(fx, [
             (
                 tuple((v for v in records.loc[i,   cols].values)),
                 tuple((v for v in records.loc[i-1, cols].values))
             )
-            for i in range(1, len(records))
+            for i in rng
         ]
     ))
 
@@ -1643,7 +1650,7 @@ def impute_between(coordinate_a, coordinate_b, freq):
     return pd.DataFrame(t)
 
 
-def impute_stationary_coordinates(records, freq='10Min', metrics=True):
+def impute_stationary_coordinates(records, freq='10Min', metrics=True, verbose=True):
     """resample a stream of `gps_records` boosting the number of points
     spent at stationary positions. This method is used due to to how the
     data were collected. GPS coordinates were recorded at either 15min
@@ -1653,10 +1660,10 @@ def impute_stationary_coordinates(records, freq='10Min', metrics=True):
     making density based clustering algorithms more effective.
 
     Args:
-        records: (DataFrame)
-        freq: (str)
-        metrics: (bool)
-        verbose:
+        records: (DataFrame) containing lat, lon, and ts columns
+        freq: (str) as defined in the Pandas timeseries module
+        metrics: (bool) set to False to not include added metrics in return value
+        verbose: (bool) set to False to disable progress bar
 
     Returns:
         [GPS]
@@ -1671,13 +1678,21 @@ def impute_stationary_coordinates(records, freq='10Min', metrics=True):
     cols = ['lat', 'lon', 'ts']
     records = records.sort_values('ts').reset_index(drop=True)
 
+    if verbose:
+        rng = tqdm(
+            range(1, len(records)),
+            desc='imputing coordinates'
+        )
+    else:
+        rng = range(1, len(records))
+
     x_ = list(map(
         lambda t: impute_between(*t, freq),
         [(
             tuple((v for v in records.loc[i-1, cols].values)),
             tuple((v for v in records.loc[i,   cols].values))
         )
-            for i in range(1, len(records))
+            for i in rng
         ]
     ))
 
@@ -1695,7 +1710,7 @@ def impute_stationary_coordinates(records, freq='10Min', metrics=True):
         records = pd.concat([records, x], axis=0, sort=False).sort_values('ts').reset_index(drop=True)
 
     # calculate velocities between the imputed locations
-    records = process_velocities(records)
+    records = process_velocities(records, verbose=verbose)
     assert len(records) >= start_cnt
 
     # make sure the beginning row for each day only has time_deltas into the current day

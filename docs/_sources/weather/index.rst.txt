@@ -5,6 +5,6 @@ Weather
    :maxdepth: 2
    :caption: Contents:
 
-.. automodule:: gscapl.weather
-   :members: CONNECTION_RESET_ATTEMPTS, CONNECTION_WAIT_TIME, weather_report
+.. automodule:: gscap.weather
+   :members: weather_report
    :member-order: bysource

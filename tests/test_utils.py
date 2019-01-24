@@ -1,14 +1,11 @@
 import datetime as dt
 from io import StringIO
-import multiprocessing as mul
 import os
 import sys
 from unittest import TestCase
-import time
 
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 
 from gscap import utils
 
@@ -168,3 +165,28 @@ class TestGPS(TestCase):
         )
         d = utils.geo_distance(self.lat, self.lon, self.lat+1, self.lon+1)
         self.assertTrue(np.isclose(d, 141114.06626067968))
+
+    def test_load_config(self):
+        self.assertRaises(FileNotFoundError, utils.load_config, 'notfound')
+
+        fn = 'testConfig'
+        if os.path.exists(fn):
+            os.remove(fn)
+
+        message = self.capture_out(
+            utils.load_config,
+            ('some_config', dict(destination_path=fn))
+        )
+        self.assertTrue('loaded key for' in message)
+
+        cf = {}
+        for k, v in [list(map(lambda x: x.strip(), l.split('='))) for l in cf if l[0] != '#']:
+            cf[k] = v
+
+        self.assertTrue(all([
+            c in ['GooglePlacesAPI', 'DarkSkyAPI', 'YelpAPI']
+            for c in cf.keys()
+        ]))
+
+        self.assertTrue(os.path.exists(fn))
+        os.remove(fn)
