@@ -173,6 +173,7 @@ class TestGPS(TestCase):
         if not os.path.exists(fn):
             fn = os.path.join('tests', fn)
 
+
         message = self.capture_out(
             utils.load_config,
             ('some_config', dict(destination_path=fn))
@@ -187,5 +188,4 @@ class TestGPS(TestCase):
             c in ['GooglePlacesAPI', 'DarkSkyAPI', 'YelpAPI']
             for c in cf.keys()
         ]))
-
         self.assertTrue(os.path.exists(fn))
