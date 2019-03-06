@@ -61,7 +61,7 @@ Base = declarative_base()
 def session_scope(engine_):
     """Provide a transactional scope around a series of operations."""
     if engine_ == GCNAME:
-        engine_ = create_engine(GCNAME, module=sqlite)
+        engine_ = create_engine(f'sqlite+pysqlite:///{dpath(GCNAME)}', module=sqlite)
     else:
         engine_ = create_engine(engine_, module=sqlite)
 
