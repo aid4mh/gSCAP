@@ -101,6 +101,7 @@ The altered GPS records.
 | 45.5047 | -122.783 | 2015-06-01 00:09:00 | stationary |            5.9 |          120 |      0.049 | home  |              8.89559 |
 
 The table of clusters.
+
 | cid   |     lat |      lon | name   | categories   |
 |-------|---------|----------|--------|--------------|
 | home  | 45.5048 | -122.783 | home   | home         |
@@ -124,6 +125,7 @@ request = gps.PlaceRequest(
 results = gps.request_nearby_places(request)
 ```
 A transposed version of the results looks like:
+
 | cols             | vals                          |
 |------------------|-------------------------------|
 | dtRetrieved      | 2019-03-06 12:30:37.329597    |
