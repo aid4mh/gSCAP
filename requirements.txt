@@ -27,6 +27,6 @@ scipy==1.1.0
 six==1.11.0
 SQLAlchemy==1.2.12
 synapseclient==1.9.0
-urllib3==1.23
+urllib3==1.26.5
 tqdm>=4.29.1
 wincertstore==0.2
