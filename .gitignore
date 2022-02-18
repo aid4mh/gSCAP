@@ -27,3 +27,5 @@ requires.txt
 SOURCES.txt
 top_level.txt
 docs/build
+docs/.gscapConfig
+filepath.txt

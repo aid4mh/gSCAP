@@ -25,7 +25,6 @@ from sqlalchemy.ext.declarative import declarative_base
 from tqdm import tqdm
 
 from gscap.utils import *
-
 __author__ = 'Luke Waninger'
 __copyright__ = 'Copyright 2018, University of Washington'
 __credits__ = 'Abhishek Pratap'
@@ -39,8 +38,8 @@ __status__ = 'development'
 
 """How many times to retry a network timeout 
 and how many seconds to wait between each """
-CONNECTION_RESET_ATTEMPTS = 99
-CONNECTION_WAIT_TIME = 60
+CONNECTION_RESET_ATTEMPTS = 5
+CONNECTION_WAIT_TIME = 10
 
 """setting tqdm to work with pandas"""
 tqdm.pandas()
@@ -196,7 +195,7 @@ def yelp_call(request):
                 'Authorization': f'Bearer {key}'
             })
 
-            response = s.get(url, params=params)
+            response = s.get(url, params=params, timeout=30)
             if response.ok:
                 result = response.json()
                 complete = True
@@ -481,6 +480,8 @@ def process_request(args):
                 call_complete = True
             except ConnectionError:
                 a += 1
+                print(f'Attempt : {a+1}')
+                print(ConnectionError)
                 time.sleep(CONNECTION_WAIT_TIME)
 
                 if a == CONNECTION_RESET_ATTEMPTS:
@@ -499,7 +500,6 @@ def process_request(args):
 
     update_queue(progress_qu)
     return dict(report=result.dict, hits=0, misses=1)
-
 
 def request_nearby_places(request, n_jobs=1, cache_only=False, force=False, progress_qu=None, kwargs=None):
     if not isinstance(request, list):
@@ -521,7 +521,6 @@ def request_nearby_places(request, n_jobs=1, cache_only=False, force=False, prog
     cpus = mul.cpu_count()
     cpus = cpus if n_jobs == -1 or n_jobs >= cpus else n_jobs
     pool = mul.Pool(cpus)
-
     if len(request) == 1:
         results = [
             process_request((request[0], cache_only, force, progress_qu, request_qu, response_qu))
@@ -1829,4 +1828,12 @@ def __validate_scikit_params(parameters):
 
 
 if __name__ == '__main__':
-    pass
+    load_config(r'C:\Users\calvi\OneDrive\Documents\thesi\gSCAP\docs\.gscapConfig')
+    request = PlaceRequest(
+        lat=5,
+        lon=7,
+        radius=50,
+        source=ApiSource.YELP,
+        rankby=YelpRankBy.BEST_MATCH,
+    )
+    results = request_nearby_places(request)
