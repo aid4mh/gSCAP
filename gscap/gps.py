@@ -175,6 +175,7 @@ class YelpRankBy(Enum):
 
 
 def yelp_call(request):
+    CONFIG = load_config_file()
     try:
         key = CONFIG['YelpAPI']
     except KeyError:
@@ -316,6 +317,7 @@ def gmapping(x):
 
 
 def gmap_call(request):
+    CONFIG = load_config_file()
     try:
         key = CONFIG['GooglePlacesAPI']
     except KeyError:
@@ -452,10 +454,11 @@ def parse_gmap_response(c):
 # processing ------------------------------------------------------------
 def process_request(args):
     request, cache_only, force, progress_qu, request_qu, response_qu = args
-
+    CONFIG = load_config_file()
+    if CONFIG['YelpAPI'] == 'Not Found':
+        raise ConnectionError('GSCAP configuration not found. Please place in gSCAP directory or use utils.set_config() to set your filepath')
     if not request.valid:
         return request.dataframe
-
     my_pid = os.getpid()
     request_qu.put(dict(pid=my_pid, type='get', args=(request,)))
     r = response_qu.get()
@@ -521,6 +524,7 @@ def request_nearby_places(request, n_jobs=1, cache_only=False, force=False, prog
     cpus = mul.cpu_count()
     cpus = cpus if n_jobs == -1 or n_jobs >= cpus else n_jobs
     pool = mul.Pool(cpus)
+
     if len(request) == 1:
         results = [
             process_request((request[0], cache_only, force, progress_qu, request_qu, response_qu))
@@ -1828,12 +1832,12 @@ def __validate_scikit_params(parameters):
 
 
 if __name__ == '__main__':
-    load_config(r'C:\Users\calvi\OneDrive\Documents\thesi\gSCAP\docs\.gscapConfig')
     request = PlaceRequest(
-        lat=5,
-        lon=7,
+        lat=90,
+        lon=40,
         radius=50,
         source=ApiSource.YELP,
         rankby=YelpRankBy.BEST_MATCH,
     )
     results = request_nearby_places(request)
+    print(results)

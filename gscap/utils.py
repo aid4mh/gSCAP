@@ -24,26 +24,27 @@ __status__ = 'development'
 
 
 """check for config file"""
-def load_config():
+def load_config_file():
     p = Path().resolve().parents[0]
     sys.path.append(str(p))
     path = os.path.join(str(p), "filepath.txt")
+    gscap_path = os.path.join(p, '.gscapConfig')
     if os.path.exists(path):
         with open(path) as f:
             fpath = f.readlines()
             if len(fpath) == 1:
                 config_file = fpath[0]
             else:
-                config_file = os.path.join(p, '.gscapConfig')
+                config_file = gscap_path
     else:
-        config_file = os.path.join(p, '.gscapConfig')
+        config_file = gscap_path
     if not os.path.exists(config_file):
         print('GSCAP configuration file not found. See the '
               'docs at https://uw-creativ-lab.github.io/gSCAP/ for more details.')
 
         CONFIG = dict(
             GooglePlacesAPI='AIza',
-            YelpAPI='none',
+            YelpAPI='Not Found',
             OpenWeatherMapAPI='none'
         )
     else:
@@ -52,18 +53,14 @@ def load_config():
 
         # read each line of the file into a dictionary as a key value pair separated with an '='
         #  ignore lines beginning with '#'
-        CONFIG = {k: v for k, v in [list(map(lambda x: x.strip(), l.split('='))) for l in cf if l[0] != '#']}
+            CONFIG = {k: v for k, v in [list(map(lambda x: x.strip(), l.split('='))) for l in cf if l[0] != '#']}
 
-        f.close()
         del cf, config_file, f
     return CONFIG
-CONFIG = load_config()
 
 CACHE_DIR = os.path.join(str(Path.home()), '.gscap')
 if not os.path.exists(CACHE_DIR):
     os.mkdir(CACHE_DIR)
-
-CONFIG = load_config()
 
 def dpath(x):
     return os.path.join(CACHE_DIR, x)
@@ -266,7 +263,7 @@ def lat_lon_range_check(lat, lon):
         raise ValueError('Longitude must be in valid range: -180 < lon < 180.')
 
 
-def load_config(fn):
+def set_config(fn):
     p = Path().resolve().parents[0]
     write_path = os.path.join(str(p),"filepath.txt")
     with open(write_path, "w") as fil:
