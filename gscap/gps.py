@@ -454,9 +454,6 @@ def parse_gmap_response(c):
 # processing ------------------------------------------------------------
 def process_request(args):
     request, cache_only, force, progress_qu, request_qu, response_qu = args
-    CONFIG = load_config_file()
-    if CONFIG['YelpAPI'] == 'Not Found':
-        raise ConnectionError('GSCAP configuration not found. Please place in gSCAP directory or use utils.set_config() to set your filepath')
     if not request.valid:
         return request.dataframe
     my_pid = os.getpid()

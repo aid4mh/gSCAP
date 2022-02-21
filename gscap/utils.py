@@ -25,10 +25,11 @@ __status__ = 'development'
 
 """check for config file"""
 def load_config_file():
-    p = Path().resolve().parents[0]
+    p = Path().resolve().parents[[i for i, x in enumerate([str(path)[-5:]=='gSCAP' for path in Path().resolve().parents]) if x][0]]
     sys.path.append(str(p))
     path = os.path.join(str(p), "filepath.txt")
     gscap_path = os.path.join(p, '.gscapConfig')
+    print(gscap_path)
     if os.path.exists(path):
         with open(path) as f:
             fpath = f.readlines()

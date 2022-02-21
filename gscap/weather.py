@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """ A collection of scripts for gathering weather data """
-
+from collections import namedtuple
 from collections import namedtuple
 from contextlib import contextmanager
 import datetime as dt
@@ -34,7 +34,7 @@ __status__ = 'development'
 
 
 """ Dark Sky API url """
-DARK_SKY_URL = 'https://api.darksky.net/forecast'
+OPEN_WEATHER_URL = 'http://api.openweathermap.org/data/2.5/weather?'
 
 CONNECTION_RESET_ATTEMPTS = 3
 """How many times to retry a network timeout """
@@ -133,11 +133,6 @@ class HourlyWeatherReport(Base):
             self.date = tup.date.date()
         else:
             self.date = tup.date
-
-        if isinstance(tup.time, dt.datetime):
-            self.time = tup.time.time()
-        else:
-            self.time = tup.time
 
         self.apparentTemperature = tup.apparentTemperature
         self.cloudCover = tup.cloudCover
@@ -348,64 +343,26 @@ def make_empty(day):
 
 def summarize_report(args):
     c, ri = args
-    r = c.get('report')
-
-    def vstats(vals):
-        vals = [v if isfloat(v) else np.nan for v in vals]
-        valid = any([not pd.isnull(vi) for vi in vals])
-
-        try:
-            qs  = np.nanpercentile(vals, [25, 50, 75], interpolation='nearest') \
-                if valid else [np.nan, np.nan, np.nan]
-            iqr = qs[2] - qs[0]
-            med = qs[1]
-            m   = np.nanmean(vals) if valid else np.nan
-            s   = np.nanstd(vals) if valid else np.nan
-        except TypeError:
-            med, iqr, m, s = 'err', 'err', 'err', 'err'
-
-        return med, iqr, m, s
-
-    cc_med, cc_iqr, cc_mean, cc_std = vstats(r.cloudCover)
-    dp_med, dp_iqr, dp_mean, dp_std = vstats(r.dewPoint)
-    h_med, h_iqr, h_mean, h_std = vstats(r.humidity)
-    t_med, t_iqr, t_mean, t_std = vstats(r.temperature)
-    p_sum  = np.sum([v for v in r.precipIntensity if isfloat(v)])
-
-    # summary = ' '.join(list(set([str(v) for v in r.icon.values])))
-    # summary = ', '.join(
-    #     list(set(re.sub(r'(,)+', ' ', summary).split(' '))))
+    r = c.get('report').to_dict(orient='records')[0]
+    zip = r['zipcode']
+    for ke in ['weather','lat','lon','date','zipcode']:
+        r.pop(ke, None)
 
     dm = dict(
         date=ri.date,
         lat=ri.lat,
         lon=ri.lon,
-        zipcode=ri.zipcode,
-        cloud_cover_mean=cc_mean,
-        cloud_cover_std=cc_std,
-        cloud_cover_median=cc_med,
-        cloud_cover_IQR=cc_iqr,
-        dew_point_mean=dp_mean,
-        dew_point_std=dp_std,
-        dew_point_median=dp_med,
-        dew_point_IQR=dp_iqr,
-        humidity_mean=h_mean,
-        humidity_std=h_std,
-        humidity_median=h_med,
-        humidity_IQR=h_iqr,
-        precip_sum=p_sum,
-        temp_mean=t_mean,
-        temp_std=t_std,
-        temp_med=t_med,
-        temp_IQR=t_iqr
+        zipcode = zip,
+        **r
     )
     return dict(report=dm, hits=c.get('hits'), misses=c.get('misses'))
 
 
 def process_request(args):
     request, progress_qu, request_qu, response_qu = args
+    CONFIG = load_config_file()
 
-    key = CONFIG['DarkSkyAPI']
+    key = CONFIG['OpenWeatherMapAPI']
 
     if request is None:
         update_progress(progress_qu)
@@ -439,7 +396,7 @@ def process_request(args):
     a, call_complete = 0, False
     while not call_complete:
         try:
-            url = f'{DARK_SKY_URL}/{key}/{request.lat},{request.lon},{int(day.timestamp())}'
+            url = f'{OPEN_WEATHER_URL}lat={request.lat}&lon={request.lon}&dt={int(day.timestamp())}&appid={key}'
             r = requests.get(url)
 
             call_complete = True
@@ -456,19 +413,10 @@ def process_request(args):
     if r.ok:
         j = dict(r.json())
 
-        if j is not None and j.get('hourly') is not None:
-            c = pd.DataFrame(
-                j.get('hourly').get('data')
-            )
-            c.time = c.time.apply(
-                lambda r: dt.datetime.fromtimestamp(r)
-            )
-            c['hour'] = c.time.apply(lambda r: r.hour)
-        else:
-            c = pd.DataFrame(columns=HOURLY_COLS)
-            t = {k: np.nan for k in HOURLY_COLS}
-            c.loc[-1] = t
+        if j is not None:
+            c = pd.json_normalize(j, sep='_')
     else:
+        raise Exception(r.text)
         c = pd.DataFrame(columns=HOURLY_COLS)
         t = {k: np.nan for k in HOURLY_COLS}
         c['time'] = dt.time(hour=12, minute=0, second=0)
@@ -477,11 +425,6 @@ def process_request(args):
     # cache the results
     c['lat'], c['lon'], c['date'] = request.lat, request.lon, day.date()
     c['zipcode'] = request.zipcode
-
-    # ensure any columns not returned from dark sky are still in the df
-    missing_cols = list(set(HOURLY_COLS) - set(c.columns))
-    for ci in missing_cols:
-        c[ci] = np.nan
 
     request_qu.put(dict(type='put', args=(c,)))
 
@@ -568,4 +511,15 @@ def update_progress(progress_queue):
 
 
 if __name__ == '__main__':
-    pass
+    today = dt.datetime.now()
+    #requests = [
+    #    (today, 47579),
+    #    (47579, today - dt.timedelta(days=1)),
+    #    (38.11, -86.92, today - dt.timedelta(days=2)),
+    #    (today - dt.timedelta(days=3), 38.11, -86.92),
+    #    (38.11, today - dt.timedelta(days=4), -86.92),
+    #]
+    request = (47579, today - dt.timedelta(days=1))
+    report = weather_report(request)
+    print(report)
+
