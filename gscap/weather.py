@@ -43,14 +43,14 @@ CONNECTION_WAIT_TIME = 3
 """Seconds to wait between each failed network attempt"""
 
 """Dark Sky hourly call columns"""
-HOURLY_COLS = [
-    'time', 'summary', 'icon', 'precipIntensity', 'precipProbability',
-    'temperature', 'apparentTemperature', 'dewPoint', 'humidity',
-    'pressure', 'pressureError', 'windSpeed', 'windBearing', 'cloudCover',
-    'cloudCoverError', 'uvIndex', 'visibility', 'lat', 'lon', 'day', 'hour',
-    'ozone', 'precipAccumulation', 'precipType', 'temperatureError',
-    'windBearingError', 'windGust', 'windSpeedError'
-]
+HOURLY_COLS = ['coord.lon','coord.lat','weather.id'
+                    ,'weather.main','weather.description','weather.icon','main.temp'
+                    ,'main.feels_like','main.pressure','main.humidity','main.temp_min'
+                    ,'main.temp_min','main.sea_level','main.grnd_level','wind.speed'
+                    ,'wind.deg','wind.gust','clouds.all','rain.1h'
+                    ,'rain.3h','snow.1h','snow.3h','sys.type',
+                    'sys.id','sys.message','sys.country','sys.sunrise','sys.sunset']
+HOURLY_COLS = [r.replace('.','_') for r in HOURLY_COLS]
 
 """ SQLAlchemy declarative base for ORM features """
 Base = declarative_base()
@@ -59,34 +59,45 @@ Base = declarative_base()
 class HourlyWeatherReport(Base):
     __tablename__ = 'hourly'
 
-    lat = Column(Float, primary_key=True)
     lon = Column(Float, primary_key=True)
+    lat = Column(Float, primary_key=True)
     date = Column(Date, primary_key=True)
     time = Column(Time, primary_key=True)
 
-    apparentTemperature = Column(Float)
-    cloudCover = Column(Float)
-    cloudCoverError = Column(Float)
-    dewPoint = Column(Float)
-    humidity = Column(Float)
-    icon = Column(String)
-    ozone = Column(Float)
-    precipAccumulation = Column(Float)
-    precipIntensity = Column(Float)
-    precipProbability = Column(Float)
-    precipType = Column(String)
-    pressure = Column(Float)
-    pressureError = Column(Float)
-    summary = Column(String)
-    temperature = Column(Float)
-    temperatureError = Column(Float)
-    uvIndex = Column(Float)
-    visibility = Column(Float)
-    windBearing = Column(Float)
-    windBearingError = Column(Float)
-    windGust = Column(Float)
-    windSpeed = Column(Float)
-    windSpeedError = Column(Float)
+    base = Column(String)
+    weather_id = Column(String)
+    weather_main = Column(Float)
+    weather_description = Column(String)
+    weather_icon = Column(Float)
+    main_temp = Column(Float)
+    main_feels_like = Column(Float)
+    main_pressure = Column(Float)
+    main_humidity = Column(Float)
+    main_temp_min = Column(Float)
+    main_temp_max = Column(Float)
+    main_sea_level = Column(Float)
+    main_grnd_level = Column(Float)
+    wind_speed = Column(Float)
+    wind_deg = Column(Float)
+    wind_gust = Column(Float)
+    clouds_all = Column(String)
+    rain_1h = Column(Float)
+    rain_3h = Column(Float)
+    snow_1h = Column(Float)
+    snow_3h = Column(Float)
+    sys_type = Column(String)
+    sys_id = Column(String)
+    sys_message = Column(String)
+    sys_country = Column(String)
+    sys_sunrise = Column(Float)
+    sys_sunset = Column(Float)
+    timezone = Column(Float)
+
+    id = Column(Float)
+
+    name = Column(String)
+    cod = Column(String)
+
 
     @hybrid_property
     def hour(self):
@@ -95,69 +106,52 @@ class HourlyWeatherReport(Base):
     @property
     def dict(self):
         return dict(
-            lat=self.lat,
-            lon=self.lon,
-            time=self.time,
-            date=self.date,
-            apparentTemperature=self.apparentTemperature,
-            cloudCover=self.cloudCover,
-            cloudCoverError=self.cloudCoverError,
-            dewPoint=self.dewPoint,
-            hour=self.hour,
-            humidity=self.humidity,
-            icon=self.icon,
-            ozone=self.ozone,
-            precipAccumulation=self.precipAccumulation,
-            precipIntensity=self.precipIntensity,
-            precipProbability=self.precipProbability,
-            precipType=self.precipType,
-            pressure=self.pressure,
-            pressureError=self.pressureError,
-            summary=self.summary,
-            temperature=self.temperature,
-            temperatureError=self.temperatureError,
-            uvIndex=self.uvIndex,
-            visibility=self.visibility,
-            windBearing=self.windBearing,
-            windBearingError=self.windBearingError,
-            windGust=self.windGust,
-            windSpeed=self.windSpeed,
-            windSpeedError=self.windSpeedError
+            lon = self.lon,
+            lat = self.lat,
+            date = self.date,
+            time = self.time,
+            base = self.base,
+            weather_id = self.weather_id,
+            weather_description = self.weather_description,
+            weather_main = self.weather_main,
+            main_temp = self.main_temp,
+            main_feels_like = self.main_feels_like,
+            main_pressure = self.main_pressure,
+            main_humidity = self.main_humidity,
+            main_temp_min = self.main_temp_min,
+            main_temp_max = self.main_temp_max,
+            main_sea_level = self.main_sea_level,
+            main_grnd_level = self.main_grnd_level,
+            wind_speed = self.wind_speed,
+            wind_deg = self.wind_deg,
+            wind_gust = self.wind_gust,
+            clouds_all = self.clouds_all,
+            rain_1h = self.rain_1h,
+            rain_3h = self.rain_3h,
+            snow_1h = self.snow_1h,
+            snow_3h = self.snow_3h,
+            sys_type = self.sys_type,
+            sys_id = self.sys_id,
+            sys_country = self.sys_country,
+            sys_message = self.sys_message,
+            sys_sunrise = self.sys_sunrise,
+            sys_sunset = self.sys_sunset,
+            id = self.id,
+            timezone = self.timezone,
+            name = self.name,
+            cod = self.cod,
         )
 
     def from_tuple(self, tup):
-        self.lat = tup.lat
-        self.lon = tup.lon
-
-        if isinstance(tup.date, dt.datetime):
-            self.date = tup.date.date()
-        else:
-            self.date = tup.date
-
-        self.apparentTemperature = tup.apparentTemperature
-        self.cloudCover = tup.cloudCover
-        self.cloudCoverError = tup.cloudCoverError
-        self.dewPoint = tup.dewPoint
-        self.humidity = tup.humidity
-        self.icon = tup.icon
-        self.ozone = tup.ozone
-        self.precipAccumulation = tup.precipAccumulation
-        self.precipIntensity = tup.precipIntensity
-        self.precipProbability = tup.precipProbability
-        self.precipType = tup.precipType
-        self.pressure = tup.pressure
-        self.pressureError = tup.pressureError
-        self.summary = tup.summary
-        self.temperature = tup.temperature
-        self.temperatureError = tup.temperatureError
-        self.uvIndex = tup.uvIndex
-        self.visibility = tup.visibility
-        self.windBearing = tup.windBearing
-        self.windBearingError = tup.windBearingError
-        self.windGust = tup.windGust
-        self.windSpeed = tup.windSpeed
-        self.windSpeedError = tup.windSpeedError
-
+        for var in ['base','lon','lat','weather.id'
+                    ,'weather.main','weather.description','weather.icon','main.temp'
+                    ,'main.feels_like','main.pressure','main.humidity','main.temp_min'
+                    ,'main.temp_min','main.sea_level','main.grnd_level','wind.speed'
+                    ,'wind.deg','wind.gust','clouds.all','rain.1h'
+                    ,'rain.3h','snow.1h','snow.3h','sys.type',
+                    'sys.id','sys.message','sys.country','sys.sunrise','sys.sunset','timezone','id','name','cod','time','date']:
+            if var in list(tup[1].index):
+                setattr(self, var.replace('.','_'), tup[1][var])
         return self
 
     def __repr__(self):
@@ -188,7 +182,7 @@ def session_scope(engine_):
         session.close()
 
 
-WCNAME = f'sqlite+pysqlite:///{dpath("weather_cache.sqlite")}'
+WCNAME = f'sqlite+pysqlite:///{dpath("weather_cache_new.sqlite")}'
 Base.metadata.create_all(
     create_engine(WCNAME, module=sqlite)
 )
@@ -296,7 +290,10 @@ def weather_report(
 
         # safely round the results
         for c in r_cols:
-            report[c] = [np.round(vi, 2) if isfloat(vi) else np.nan for vi in report[c]]
+            try:
+                report[c] = [np.round(vi, 2) for vi in report[c]]
+            except:
+                pass
 
         results = dict(report=report, hits=hits, misses=misses)
     else:
@@ -435,7 +432,7 @@ def process_request(args):
 def put_to_cache(content, session):
     rows = [
         HourlyWeatherReport().from_tuple(t)
-        for t in content.itertuples()
+        for t in content.iterrows()
     ]
     session.add_all(rows)
 
@@ -512,14 +509,12 @@ def update_progress(progress_queue):
 
 if __name__ == '__main__':
     today = dt.datetime.now()
-    #requests = [
-    #    (today, 47579),
-    #    (47579, today - dt.timedelta(days=1)),
-    #    (38.11, -86.92, today - dt.timedelta(days=2)),
-    #    (today - dt.timedelta(days=3), 38.11, -86.92),
-    #    (38.11, today - dt.timedelta(days=4), -86.92),
-    #]
+    requests = [
+        (31.11, -82.92, today - dt.timedelta(days=2)),
+        (today - dt.timedelta(days=3), 33.11, -82.92),
+        (31.11, today - dt.timedelta(days=4), -81.92),
+    ]
     request = (47579, today - dt.timedelta(days=1))
-    report = weather_report(request)
+    report = weather_report(requests)
     print(report)
 
