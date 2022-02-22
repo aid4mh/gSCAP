@@ -43,10 +43,10 @@ CONNECTION_WAIT_TIME = 3
 """Seconds to wait between each failed network attempt"""
 
 """Dark Sky hourly call columns"""
-HOURLY_COLS = ['coord.lon','coord.lat','weather.id'
+HOURLY_COLS = ['day','lon','lat','weather.id','zipcode'
                     ,'weather.main','weather.description','weather.icon','main.temp'
                     ,'main.feels_like','main.pressure','main.humidity','main.temp_min'
-                    ,'main.temp_min','main.sea_level','main.grnd_level','wind.speed'
+                    ,'main.temp_max','main.sea_level','main.grnd_level','wind.speed'
                     ,'wind.deg','wind.gust','clouds.all','rain.1h'
                     ,'rain.3h','snow.1h','snow.3h','sys.type',
                     'sys.id','sys.message','sys.country','sys.sunrise','sys.sunset']
@@ -65,6 +65,7 @@ class HourlyWeatherReport(Base):
     time = Column(Time, primary_key=True)
 
     base = Column(String)
+    zipcode = Column(String)
     weather_id = Column(String)
     weather_main = Column(Float)
     weather_description = Column(String)
@@ -111,6 +112,7 @@ class HourlyWeatherReport(Base):
             date = self.date,
             time = self.time,
             base = self.base,
+            zipcode = self.zipcode,
             weather_id = self.weather_id,
             weather_description = self.weather_description,
             weather_main = self.weather_main,
@@ -143,7 +145,7 @@ class HourlyWeatherReport(Base):
         )
 
     def from_tuple(self, tup):
-        for var in ['base','lon','lat','weather.id'
+        for var in ['base','lon','lat','weather.id','zipcode'
                     ,'weather.main','weather.description','weather.icon','main.temp'
                     ,'main.feels_like','main.pressure','main.humidity','main.temp_min'
                     ,'main.temp_min','main.sea_level','main.grnd_level','wind.speed'
@@ -413,7 +415,6 @@ def process_request(args):
         if j is not None:
             c = pd.json_normalize(j, sep='_')
     else:
-        raise Exception(r.text)
         c = pd.DataFrame(columns=HOURLY_COLS)
         t = {k: np.nan for k in HOURLY_COLS}
         c['time'] = dt.time(hour=12, minute=0, second=0)

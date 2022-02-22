@@ -1829,12 +1829,4 @@ def __validate_scikit_params(parameters):
 
 
 if __name__ == '__main__':
-    request = PlaceRequest(
-        lat=90,
-        lon=40,
-        radius=50,
-        source=ApiSource.YELP,
-        rankby=YelpRankBy.BEST_MATCH,
-    )
-    results = request_nearby_places(request)
-    print(results)
+    print(zip_from_dd(20, 142, 1))

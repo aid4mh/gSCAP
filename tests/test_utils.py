@@ -6,6 +6,7 @@ from unittest import TestCase
 
 import numpy as np
 import pandas as pd
+from pathlib import Path
 
 from gscap import utils
 
@@ -107,15 +108,6 @@ class TestGPS(TestCase):
         zipc = utils.zip_from_dd(self.lat, self.lon)
         self.assertTrue(zipc == self.zipcode)
 
-        zipc = utils.zip_from_dd(self.lat, self.lon)
-        self.assertTrue(zipc == self.zipcode)
-
-        message = self.capture_out(utils.zip_from_dd, (20, 142)).strip(os.linesep)
-        self.assertTrue(message == 'WARNING: closest zipcode found was 210.5Km from (20, 142)')
-
-        message = self.capture_out(utils.zip_from_dd, (20, 142, 1)).strip(os.linesep)
-        self.assertTrue(message == 'WARNING: zipcode not found within 1Km of (20, 142)')
-
         self.assertTrue(utils.zip_from_dd(20, 142, 1) == -1)
 
     def test_latlon_range_check(self):
@@ -166,27 +158,10 @@ class TestGPS(TestCase):
         d = utils.geo_distance(self.lat, self.lon, self.lat+1, self.lon+1)
         self.assertTrue(np.isclose(d, 141114.06626067968))
 
-    def test_load_config(self):
-        self.assertRaises(FileNotFoundError, utils.load_config, 'notfound')
+    def test_set_config(self):
+        p = Path().resolve().parents[
+            [i for i, x in enumerate([str(path)[-5:] == 'gSCAP' for path in Path().resolve().parents]) if x][0]]
 
-        fn = 'some_config'
-        if not os.path.exists(fn):
-            fn = os.path.join('tests', fn)
-
-        destination = 'testConfig'
-        message = self.capture_out(
-            utils.load_config,
-            (fn, dict(destination_path=destination))
-        )
-        self.assertTrue('loaded key for' in message)
-
-        cf = {}
-        for k, v in [list(map(lambda x: x.strip(), l.split('='))) for l in cf if l[0] != '#']:
-            cf[k] = v
-
-        self.assertTrue(all([
-            c in ['GooglePlacesAPI', 'DarkSkyAPI', 'YelpAPI']
-            for c in cf.keys()
-        ]))
-        self.assertTrue(os.path.exists(destination))
-        os.remove(destination)
+        path = os.path.join(str(p), "filepath.txt")
+        gscap_path = os.path.join(p, '.gscapConfig')
+        self.assertTrue(os.path.exists(path) or os.path.exists(gscap_path))

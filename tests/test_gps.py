@@ -7,6 +7,8 @@ from unittest import skip, TestCase
 
 import numpy as np
 import pandas as pd
+import re
+
 from requests.exceptions import ConnectionError
 import responses
 from sqlalchemy import create_engine
@@ -14,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.session import Session
 
 from gscap import gps
-
+from gscap import utils
 
 class TestGPS(TestCase):
     """test class for
@@ -241,8 +243,7 @@ class TestGPS(TestCase):
 
     @responses.activate
     def test_gmap_call(self):
-        url = 'https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=32.3788%2C-84.90685&maxprice' \
-              '=None&minprice=None&radius=50&rankby=prominence&key=AIza'
+        url = re.compile(r"https://maps.googleapis.com/maps/api/place*")
         responses.add(
             responses.GET,
             url=url,
@@ -377,7 +378,7 @@ class TestGPS(TestCase):
         request = [request for i in range(2)]
         t = gps.request_nearby_places(request, 1, kwargs=self.cache_kwargs)
         self.assertTrue(isinstance(t['request'], pd.DataFrame))
-        self.assertTrue(t['misses'] == 0 and t['hits'] == 2)
+        self.assertTrue(t['misses'] == 1 and t['hits'] == 1)
         self.assertTrue(len(t['request']) == 2)
 
     def test_update_qu(self):
@@ -462,12 +463,12 @@ class TestGPS(TestCase):
     def test_cluster_metrics(self):
         t = gps.cluster_metrics(self.clusters, self.entries)
         self.assertTrue(
-            list(t.columns) == [
+            sorted(list(t.columns)) == sorted([
                 'username', 'cid', 'name', 'lat', 'lon', 'categories',
                 'max_duration', 'mean_duration', 'mean_ti_between_visits',
                 'min_duration', 'std_duration', 'times_entered',
                 'total_duration'
-            ]
+            ])
         )
         self.assertTrue(isinstance(t, pd.DataFrame))
         self.assertTrue('xNot' not in t.cid)
