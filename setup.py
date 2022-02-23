@@ -20,7 +20,7 @@ setuptools.setup(
     ],
     install_requires=[
         'googlemaps==3.0.2',
-        'numpy==1.15.2',
+        'numpy==1.21.0',
         'pandas==0.23.4',
         'requests>=2.20.0',
         'scikit-learn==0.19.2',
