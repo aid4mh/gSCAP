@@ -25,7 +25,7 @@ setuptools.setup(
         'requests>=2.20.0',
         'scikit-learn==0.19.2',
         'scipy==1.1.0',
-        'SQLAlchemy==1.2.12',
+        'SQLAlchemy==1.3.0',
         'urllib3==1.26.5',
         'tqdm>=4.29.1'
     ],
