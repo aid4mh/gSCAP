@@ -29,7 +29,6 @@ def load_config_file():
     sys.path.append(str(p))
     path = os.path.join(str(p), "filepath.txt")
     gscap_path = os.path.join(p, '.gscapConfig')
-    print(gscap_path)
     if os.path.exists(path):
         with open(path) as f:
             fpath = f.readlines()

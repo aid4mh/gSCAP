@@ -509,13 +509,5 @@ def update_progress(progress_queue):
 
 
 if __name__ == '__main__':
-    today = dt.datetime.now()
-    requests = [
-        (31.11, -82.92, today - dt.timedelta(days=2)),
-        (today - dt.timedelta(days=3), 33.11, -82.92),
-        (31.11, today - dt.timedelta(days=4), -81.92),
-    ]
-    request = (47579, today - dt.timedelta(days=1))
-    report = weather_report(requests)
-    print(report)
+    pass
 

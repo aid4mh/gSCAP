@@ -1829,4 +1829,4 @@ def __validate_scikit_params(parameters):
 
 
 if __name__ == '__main__':
-    print(zip_from_dd(20, 142, 1))
+    pass
