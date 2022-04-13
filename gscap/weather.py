@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """ A collection of scripts for gathering weather data """
-
+from collections import namedtuple
 from collections import namedtuple
 from contextlib import contextmanager
 import datetime as dt
@@ -34,7 +34,7 @@ __status__ = 'development'
 
 
 """ Dark Sky API url """
-DARK_SKY_URL = 'https://api.darksky.net/forecast'
+OPEN_WEATHER_URL = 'http://api.openweathermap.org/data/2.5/weather?'
 
 CONNECTION_RESET_ATTEMPTS = 3
 """How many times to retry a network timeout """
@@ -43,14 +43,14 @@ CONNECTION_WAIT_TIME = 3
 """Seconds to wait between each failed network attempt"""
 
 """Dark Sky hourly call columns"""
-HOURLY_COLS = [
-    'time', 'summary', 'icon', 'precipIntensity', 'precipProbability',
-    'temperature', 'apparentTemperature', 'dewPoint', 'humidity',
-    'pressure', 'pressureError', 'windSpeed', 'windBearing', 'cloudCover',
-    'cloudCoverError', 'uvIndex', 'visibility', 'lat', 'lon', 'day', 'hour',
-    'ozone', 'precipAccumulation', 'precipType', 'temperatureError',
-    'windBearingError', 'windGust', 'windSpeedError'
-]
+HOURLY_COLS = ['day','lon','lat','weather.id','zipcode'
+                    ,'weather.main','weather.description','weather.icon','main.temp'
+                    ,'main.feels_like','main.pressure','main.humidity','main.temp_min'
+                    ,'main.temp_max','main.sea_level','main.grnd_level','wind.speed'
+                    ,'wind.deg','wind.gust','clouds.all','rain.1h'
+                    ,'rain.3h','snow.1h','snow.3h','sys.type',
+                    'sys.id','sys.message','sys.country','sys.sunrise','sys.sunset']
+HOURLY_COLS = [r.replace('.','_') for r in HOURLY_COLS]
 
 """ SQLAlchemy declarative base for ORM features """
 Base = declarative_base()
@@ -59,34 +59,46 @@ Base = declarative_base()
 class HourlyWeatherReport(Base):
     __tablename__ = 'hourly'
 
-    lat = Column(Float, primary_key=True)
     lon = Column(Float, primary_key=True)
+    lat = Column(Float, primary_key=True)
     date = Column(Date, primary_key=True)
     time = Column(Time, primary_key=True)
 
-    apparentTemperature = Column(Float)
-    cloudCover = Column(Float)
-    cloudCoverError = Column(Float)
-    dewPoint = Column(Float)
-    humidity = Column(Float)
-    icon = Column(String)
-    ozone = Column(Float)
-    precipAccumulation = Column(Float)
-    precipIntensity = Column(Float)
-    precipProbability = Column(Float)
-    precipType = Column(String)
-    pressure = Column(Float)
-    pressureError = Column(Float)
-    summary = Column(String)
-    temperature = Column(Float)
-    temperatureError = Column(Float)
-    uvIndex = Column(Float)
-    visibility = Column(Float)
-    windBearing = Column(Float)
-    windBearingError = Column(Float)
-    windGust = Column(Float)
-    windSpeed = Column(Float)
-    windSpeedError = Column(Float)
+    base = Column(String)
+    zipcode = Column(String)
+    weather_id = Column(String)
+    weather_main = Column(Float)
+    weather_description = Column(String)
+    weather_icon = Column(Float)
+    main_temp = Column(Float)
+    main_feels_like = Column(Float)
+    main_pressure = Column(Float)
+    main_humidity = Column(Float)
+    main_temp_min = Column(Float)
+    main_temp_max = Column(Float)
+    main_sea_level = Column(Float)
+    main_grnd_level = Column(Float)
+    wind_speed = Column(Float)
+    wind_deg = Column(Float)
+    wind_gust = Column(Float)
+    clouds_all = Column(String)
+    rain_1h = Column(Float)
+    rain_3h = Column(Float)
+    snow_1h = Column(Float)
+    snow_3h = Column(Float)
+    sys_type = Column(String)
+    sys_id = Column(String)
+    sys_message = Column(String)
+    sys_country = Column(String)
+    sys_sunrise = Column(Float)
+    sys_sunset = Column(Float)
+    timezone = Column(Float)
+
+    id = Column(Float)
+
+    name = Column(String)
+    cod = Column(String)
+
 
     @hybrid_property
     def hour(self):
@@ -95,74 +107,53 @@ class HourlyWeatherReport(Base):
     @property
     def dict(self):
         return dict(
-            lat=self.lat,
-            lon=self.lon,
-            time=self.time,
-            date=self.date,
-            apparentTemperature=self.apparentTemperature,
-            cloudCover=self.cloudCover,
-            cloudCoverError=self.cloudCoverError,
-            dewPoint=self.dewPoint,
-            hour=self.hour,
-            humidity=self.humidity,
-            icon=self.icon,
-            ozone=self.ozone,
-            precipAccumulation=self.precipAccumulation,
-            precipIntensity=self.precipIntensity,
-            precipProbability=self.precipProbability,
-            precipType=self.precipType,
-            pressure=self.pressure,
-            pressureError=self.pressureError,
-            summary=self.summary,
-            temperature=self.temperature,
-            temperatureError=self.temperatureError,
-            uvIndex=self.uvIndex,
-            visibility=self.visibility,
-            windBearing=self.windBearing,
-            windBearingError=self.windBearingError,
-            windGust=self.windGust,
-            windSpeed=self.windSpeed,
-            windSpeedError=self.windSpeedError
+            lon = self.lon,
+            lat = self.lat,
+            date = self.date,
+            time = self.time,
+            base = self.base,
+            zipcode = self.zipcode,
+            weather_id = self.weather_id,
+            weather_description = self.weather_description,
+            weather_main = self.weather_main,
+            main_temp = self.main_temp,
+            main_feels_like = self.main_feels_like,
+            main_pressure = self.main_pressure,
+            main_humidity = self.main_humidity,
+            main_temp_min = self.main_temp_min,
+            main_temp_max = self.main_temp_max,
+            main_sea_level = self.main_sea_level,
+            main_grnd_level = self.main_grnd_level,
+            wind_speed = self.wind_speed,
+            wind_deg = self.wind_deg,
+            wind_gust = self.wind_gust,
+            clouds_all = self.clouds_all,
+            rain_1h = self.rain_1h,
+            rain_3h = self.rain_3h,
+            snow_1h = self.snow_1h,
+            snow_3h = self.snow_3h,
+            sys_type = self.sys_type,
+            sys_id = self.sys_id,
+            sys_country = self.sys_country,
+            sys_message = self.sys_message,
+            sys_sunrise = self.sys_sunrise,
+            sys_sunset = self.sys_sunset,
+            id = self.id,
+            timezone = self.timezone,
+            name = self.name,
+            cod = self.cod,
         )
 
     def from_tuple(self, tup):
-        self.lat = tup.lat
-        self.lon = tup.lon
-
-        if isinstance(tup.date, dt.datetime):
-            self.date = tup.date.date()
-        else:
-            self.date = tup.date
-
-        if isinstance(tup.time, dt.datetime):
-            self.time = tup.time.time()
-        else:
-            self.time = tup.time
-
-        self.apparentTemperature = tup.apparentTemperature
-        self.cloudCover = tup.cloudCover
-        self.cloudCoverError = tup.cloudCoverError
-        self.dewPoint = tup.dewPoint
-        self.humidity = tup.humidity
-        self.icon = tup.icon
-        self.ozone = tup.ozone
-        self.precipAccumulation = tup.precipAccumulation
-        self.precipIntensity = tup.precipIntensity
-        self.precipProbability = tup.precipProbability
-        self.precipType = tup.precipType
-        self.pressure = tup.pressure
-        self.pressureError = tup.pressureError
-        self.summary = tup.summary
-        self.temperature = tup.temperature
-        self.temperatureError = tup.temperatureError
-        self.uvIndex = tup.uvIndex
-        self.visibility = tup.visibility
-        self.windBearing = tup.windBearing
-        self.windBearingError = tup.windBearingError
-        self.windGust = tup.windGust
-        self.windSpeed = tup.windSpeed
-        self.windSpeedError = tup.windSpeedError
-
+        for var in ['base','lon','lat','weather.id','zipcode'
+                    ,'weather.main','weather.description','weather.icon','main.temp'
+                    ,'main.feels_like','main.pressure','main.humidity','main.temp_min'
+                    ,'main.temp_min','main.sea_level','main.grnd_level','wind.speed'
+                    ,'wind.deg','wind.gust','clouds.all','rain.1h'
+                    ,'rain.3h','snow.1h','snow.3h','sys.type',
+                    'sys.id','sys.message','sys.country','sys.sunrise','sys.sunset','timezone','id','name','cod','time','date']:
+            if var in list(tup[1].index):
+                setattr(self, var.replace('.','_'), tup[1][var])
         return self
 
     def __repr__(self):
@@ -193,7 +184,7 @@ def session_scope(engine_):
         session.close()
 
 
-WCNAME = f'sqlite+pysqlite:///{dpath("weather_cache.sqlite")}'
+WCNAME = f'sqlite+pysqlite:///{dpath("weather_cache_new.sqlite")}'
 Base.metadata.create_all(
     create_engine(WCNAME, module=sqlite)
 )
@@ -301,7 +292,10 @@ def weather_report(
 
         # safely round the results
         for c in r_cols:
-            report[c] = [np.round(vi, 2) if isfloat(vi) else np.nan for vi in report[c]]
+            try:
+                report[c] = [np.round(vi, 2) for vi in report[c]]
+            except:
+                pass
 
         results = dict(report=report, hits=hits, misses=misses)
     else:
@@ -348,64 +342,26 @@ def make_empty(day):
 
 def summarize_report(args):
     c, ri = args
-    r = c.get('report')
-
-    def vstats(vals):
-        vals = [v if isfloat(v) else np.nan for v in vals]
-        valid = any([not pd.isnull(vi) for vi in vals])
-
-        try:
-            qs  = np.nanpercentile(vals, [25, 50, 75], interpolation='nearest') \
-                if valid else [np.nan, np.nan, np.nan]
-            iqr = qs[2] - qs[0]
-            med = qs[1]
-            m   = np.nanmean(vals) if valid else np.nan
-            s   = np.nanstd(vals) if valid else np.nan
-        except TypeError:
-            med, iqr, m, s = 'err', 'err', 'err', 'err'
-
-        return med, iqr, m, s
-
-    cc_med, cc_iqr, cc_mean, cc_std = vstats(r.cloudCover)
-    dp_med, dp_iqr, dp_mean, dp_std = vstats(r.dewPoint)
-    h_med, h_iqr, h_mean, h_std = vstats(r.humidity)
-    t_med, t_iqr, t_mean, t_std = vstats(r.temperature)
-    p_sum  = np.sum([v for v in r.precipIntensity if isfloat(v)])
-
-    # summary = ' '.join(list(set([str(v) for v in r.icon.values])))
-    # summary = ', '.join(
-    #     list(set(re.sub(r'(,)+', ' ', summary).split(' '))))
+    r = c.get('report').to_dict(orient='records')[0]
+    zip = r['zipcode']
+    for ke in ['weather','lat','lon','date','zipcode']:
+        r.pop(ke, None)
 
     dm = dict(
         date=ri.date,
         lat=ri.lat,
         lon=ri.lon,
-        zipcode=ri.zipcode,
-        cloud_cover_mean=cc_mean,
-        cloud_cover_std=cc_std,
-        cloud_cover_median=cc_med,
-        cloud_cover_IQR=cc_iqr,
-        dew_point_mean=dp_mean,
-        dew_point_std=dp_std,
-        dew_point_median=dp_med,
-        dew_point_IQR=dp_iqr,
-        humidity_mean=h_mean,
-        humidity_std=h_std,
-        humidity_median=h_med,
-        humidity_IQR=h_iqr,
-        precip_sum=p_sum,
-        temp_mean=t_mean,
-        temp_std=t_std,
-        temp_med=t_med,
-        temp_IQR=t_iqr
+        zipcode = zip,
+        **r
     )
     return dict(report=dm, hits=c.get('hits'), misses=c.get('misses'))
 
 
 def process_request(args):
     request, progress_qu, request_qu, response_qu = args
+    CONFIG = load_config_file()
 
-    key = CONFIG['DarkSkyAPI']
+    key = CONFIG['OpenWeatherMapAPI']
 
     if request is None:
         update_progress(progress_qu)
@@ -439,7 +395,7 @@ def process_request(args):
     a, call_complete = 0, False
     while not call_complete:
         try:
-            url = f'{DARK_SKY_URL}/{key}/{request.lat},{request.lon},{int(day.timestamp())}'
+            url = f'{OPEN_WEATHER_URL}lat={request.lat}&lon={request.lon}&dt={int(day.timestamp())}&appid={key}'
             r = requests.get(url)
 
             call_complete = True
@@ -456,18 +412,8 @@ def process_request(args):
     if r.ok:
         j = dict(r.json())
 
-        if j is not None and j.get('hourly') is not None:
-            c = pd.DataFrame(
-                j.get('hourly').get('data')
-            )
-            c.time = c.time.apply(
-                lambda r: dt.datetime.fromtimestamp(r)
-            )
-            c['hour'] = c.time.apply(lambda r: r.hour)
-        else:
-            c = pd.DataFrame(columns=HOURLY_COLS)
-            t = {k: np.nan for k in HOURLY_COLS}
-            c.loc[-1] = t
+        if j is not None:
+            c = pd.json_normalize(j, sep='_')
     else:
         c = pd.DataFrame(columns=HOURLY_COLS)
         t = {k: np.nan for k in HOURLY_COLS}
@@ -478,11 +424,6 @@ def process_request(args):
     c['lat'], c['lon'], c['date'] = request.lat, request.lon, day.date()
     c['zipcode'] = request.zipcode
 
-    # ensure any columns not returned from dark sky are still in the df
-    missing_cols = list(set(HOURLY_COLS) - set(c.columns))
-    for ci in missing_cols:
-        c[ci] = np.nan
-
     request_qu.put(dict(type='put', args=(c,)))
 
     update_progress(progress_qu)
@@ -492,7 +433,7 @@ def process_request(args):
 def put_to_cache(content, session):
     rows = [
         HourlyWeatherReport().from_tuple(t)
-        for t in content.itertuples()
+        for t in content.iterrows()
     ]
     session.add_all(rows)
 
@@ -569,3 +510,4 @@ def update_progress(progress_queue):
 
 if __name__ == '__main__':
     pass
+

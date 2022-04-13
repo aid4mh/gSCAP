@@ -25,7 +25,6 @@ from sqlalchemy.ext.declarative import declarative_base
 from tqdm import tqdm
 
 from gscap.utils import *
-
 __author__ = 'Luke Waninger'
 __copyright__ = 'Copyright 2018, University of Washington'
 __credits__ = 'Abhishek Pratap'
@@ -39,8 +38,8 @@ __status__ = 'development'
 
 """How many times to retry a network timeout 
 and how many seconds to wait between each """
-CONNECTION_RESET_ATTEMPTS = 99
-CONNECTION_WAIT_TIME = 60
+CONNECTION_RESET_ATTEMPTS = 5
+CONNECTION_WAIT_TIME = 10
 
 """setting tqdm to work with pandas"""
 tqdm.pandas()
@@ -176,6 +175,7 @@ class YelpRankBy(Enum):
 
 
 def yelp_call(request):
+    CONFIG = load_config_file()
     try:
         key = CONFIG['YelpAPI']
     except KeyError:
@@ -196,7 +196,7 @@ def yelp_call(request):
                 'Authorization': f'Bearer {key}'
             })
 
-            response = s.get(url, params=params)
+            response = s.get(url, params=params, timeout=30)
             if response.ok:
                 result = response.json()
                 complete = True
@@ -317,6 +317,7 @@ def gmapping(x):
 
 
 def gmap_call(request):
+    CONFIG = load_config_file()
     try:
         key = CONFIG['GooglePlacesAPI']
     except KeyError:
@@ -453,10 +454,8 @@ def parse_gmap_response(c):
 # processing ------------------------------------------------------------
 def process_request(args):
     request, cache_only, force, progress_qu, request_qu, response_qu = args
-
     if not request.valid:
         return request.dataframe
-
     my_pid = os.getpid()
     request_qu.put(dict(pid=my_pid, type='get', args=(request,)))
     r = response_qu.get()
@@ -481,6 +480,8 @@ def process_request(args):
                 call_complete = True
             except ConnectionError:
                 a += 1
+                print(f'Attempt : {a+1}')
+                print(ConnectionError)
                 time.sleep(CONNECTION_WAIT_TIME)
 
                 if a == CONNECTION_RESET_ATTEMPTS:
@@ -499,7 +500,6 @@ def process_request(args):
 
     update_queue(progress_qu)
     return dict(report=result.dict, hits=0, misses=1)
-
 
 def request_nearby_places(request, n_jobs=1, cache_only=False, force=False, progress_qu=None, kwargs=None):
     if not isinstance(request, list):

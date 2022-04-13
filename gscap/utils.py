@@ -24,31 +24,43 @@ __status__ = 'development'
 
 
 """check for config file"""
-config_file = os.path.join(Path.home(), '.gscapConfig')
-if not os.path.exists(config_file):
-    print('GSCAP configuration file not found. See the '
-          'docs at https://uw-creativ-lab.github.io/gSCAP/ for more details.')
+def load_config_file():
+    p = Path().resolve().parents[[i for i, x in enumerate([str(path)[-5:]=='gSCAP' for path in Path().resolve().parents]) if x][0]]
+    sys.path.append(str(p))
+    path = os.path.join(str(p), "filepath.txt")
+    gscap_path = os.path.join(p, '.gscapConfig')
+    if os.path.exists(path):
+        with open(path) as f:
+            fpath = f.readlines()
+            if len(fpath) == 1:
+                config_file = fpath[0]
+            else:
+                config_file = gscap_path
+    else:
+        config_file = gscap_path
+    if not os.path.exists(config_file):
+        print('GSCAP configuration file not found. See the '
+              'docs at https://uw-creativ-lab.github.io/gSCAP/ for more details.')
 
-    CONFIG = dict(
-        GooglePlacesAPI='AIza',
-        YelpAPI='none',
-        DarkSkyAPI='none'
-    )
-else:
-    with open(config_file, 'r') as f:
-        cf = f.readlines()
+        CONFIG = dict(
+            GooglePlacesAPI='AIza',
+            YelpAPI='Not Found',
+            OpenWeatherMapAPI='none'
+        )
+    else:
+        with open(config_file) as f:
+            cf = f.readlines()
 
-    # read each line of the file into a dictionary as a key value pair separated with an '='
-    #  ignore lines beginning with '#'
-    CONFIG = {k: v for k, v in [list(map(lambda x: x.strip(), l.split('='))) for l in cf if l[0] != '#']}
+        # read each line of the file into a dictionary as a key value pair separated with an '='
+        #  ignore lines beginning with '#'
+            CONFIG = {k: v for k, v in [list(map(lambda x: x.strip(), l.split('='))) for l in cf if l[0] != '#']}
 
-    f.close()
-    del cf, config_file, f
+        del cf, config_file, f
+    return CONFIG
 
 CACHE_DIR = os.path.join(str(Path.home()), '.gscap')
 if not os.path.exists(CACHE_DIR):
     os.mkdir(CACHE_DIR)
-
 
 def dpath(x):
     return os.path.join(CACHE_DIR, x)
@@ -251,38 +263,11 @@ def lat_lon_range_check(lat, lon):
         raise ValueError('Longitude must be in valid range: -180 < lon < 180.')
 
 
-def load_config(fn, kwargs=None):
-    """Load a configuration file
-
-    Args:
-        fn: (str) file path
-        kwargs
-    """
-    if not os.path.exists(fn):
-        raise FileNotFoundError
-
-    else:
-        with open(fn, 'r') as f:
-            cf = f.readlines()
-
-        # read each line of the file into a dictionary as a key value pair separated with an '='
-        # ignore lines beginning with '#'
-        print()
-        for k, v in [list(map(lambda x: x.strip(), l.split('='))) for l in cf if l[0] != '#']:
-            CONFIG[k] = v
-            print(f'loaded key for {k}')
-
-        f.close()
-
-    if kwargs is not None and 'destination_path' in kwargs.keys():
-        dp = kwargs['destination_path']
-    else:
-        dp = os.path.join(Path.home(), '.gscapConfig')
-
-    with open(dp, 'w') as f:
-        for k, v in CONFIG.items():
-            f.writelines(f'{k}={v}')
-
+def set_config(fn):
+    p = Path().resolve().parents[0]
+    write_path = os.path.join(str(p),"filepath.txt")
+    with open(write_path, "w") as fil:
+        fil.write(fn)
 
 if __name__ == '__main__':
     pass

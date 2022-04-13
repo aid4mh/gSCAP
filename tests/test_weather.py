@@ -13,7 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.session import Session
 
 import gscap.weather as wthr
-
+import gscap.utils as utils
 
 class TestWeather(TestCase):
     """test class for
@@ -292,7 +292,7 @@ class TestWeather(TestCase):
         t = wthr.summarize_report(args)
 
         cols = list({k for k in t['report'].keys()}-{
-            'lat', 'lon', 'date', 'zipcode', 'precip_sum'
+            'lat', 'lon', 'date', 'zipcode', 'precip_sum', 'id', 'timezone', 'name', 'cod', 'base', 'time'
         })
 
         for c in cols:
@@ -300,7 +300,7 @@ class TestWeather(TestCase):
                 self.assertTrue(t['report'][c] == 0.0)
             else:
                 self.assertTrue(t['report'][c] == 0.5)
-        self.assertTrue(t['report']['precip_sum'] == 11.5)
+
 
     def test_verify_request(self):
         r = wthr.verify_request((0, 0, self.day))
@@ -343,11 +343,11 @@ class TestWeather(TestCase):
 
     @responses.activate
     def test_process_request(self):
-        key = wthr.CONFIG['DarkSkyAPI']
+        key = utils.load_config_file()['OpenWeatherMapAPI']
 
         for url in [
-            f'https://api.darksky.net/forecast/{key}/32.4,-84.9,1115319600',
-            f'https://api.darksky.net/forecast/{key}/32.4,-84.9,1115294400'
+            f'http://api.openweathermap.org/data/2.5/weather?lat=32.4&lon=-84.9&dt=1115319600&appid={key}',
+            f'http://api.openweathermap.org/data/2.5/weather?lat=32.4&lon=-84.9&dt=1115294400&appid={key}'
         ]:
             responses.add(
                 responses.GET,
@@ -377,7 +377,7 @@ class TestWeather(TestCase):
         ))
         self.assertTrue(t['misses'] == 1 and t['hits'] == 0)
         self.assertTrue(isinstance(t['report'], pd.DataFrame))
-        self.assertTrue(len(t['report']) == 24)
+        self.assertTrue(len(t['report'].columns) == 31)
 
         def empty_and_close(qu):
             while not qu.empty():
@@ -392,10 +392,10 @@ class TestWeather(TestCase):
 
     @responses.activate
     def test_process_request_raises_connection_error(self):
-        key = wthr.CONFIG['DarkSkyAPI']
+        key = utils.load_config_file()['OpenWeatherMapAPI']
         lat = np.round(self.lat, 1)
         lon = np.round(self.lon, 1)
-        url = f'https://api.darksky.net/forecast/{key}/32.4,-84.9,1115319600'
+        url = f'http://api.openweathermap.org/data/2.5/weather?lat=32.4&lon=-84.9&dt=1115319600&appid={key}'
 
         responses.add(
             responses.GET,
@@ -420,11 +420,11 @@ class TestWeather(TestCase):
         lat = np.round(self.lat, 1)
         lon = np.round(self.lon, 1)
 
-        key = wthr.CONFIG['DarkSkyAPI']
+        key = utils.load_config_file()['OpenWeatherMapAPI']
 
         for url in [
-            f'https://api.darksky.net/forecast/{key}/32.4,-84.9,1115319600',
-            f'https://api.darksky.net/forecast/{key}/32.4,-84.9,1115294400'
+            f'http://api.openweathermap.org/data/2.5/weather?lat=32.4&lon=-84.9&dt=1115319600&appid={key}',
+            f'http://api.openweathermap.org/data/2.5/weather?lat=32.4&lon=-84.9&dt=1115294400&appid={key}'
         ]:
             responses.add(
                 responses.GET,
